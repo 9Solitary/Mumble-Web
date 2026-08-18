@@ -26,7 +26,7 @@ COPY --from=frontend /app/dist /app/dist
 ENV LISTEN=":8080" \
     STATIC_DIR="/app/dist" \
     MUMBLE_SERVER="voice.azsyc.com" \
-    MUMBLE_TLS="insecure" \
+    MUMBLE_TLS="pin:BC:3C:29:BC:A9:C7:C4:73:95:90:E8:B0:4A:65:14:E1:E8:8C:30:F3:BA:94:AB:8B:26:B4:8A:6D:B7:AE:4D:CF" \
     RTC_UDP_PORT="50000" \
     RTC_PUBLIC_IP=""
 

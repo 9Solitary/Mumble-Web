@@ -52,7 +52,7 @@ npm run dev
 | 环境变量 | 默认值 | 说明 |
 |---|---|---|
 | `MUMBLE_SERVER` | `voice.azsyc.com` | 上游服务器；无端口时自动 SRV 解析 |
-| `MUMBLE_TLS` | `insecure` | `verify` / `pin:<指纹>` / `insecure` |
+| `MUMBLE_TLS` | `pin:<当前证书指纹>` | `verify` / `pin:<指纹>` / `insecure` |
 | `LISTEN` / `PORT` | `:8080` | HTTP 监听 |
 | `RTC_UDP_PORT` | `50000` | WebRTC ICE UDP 端口（需对浏览器可达） |
 | `RTC_PUBLIC_IP` | 空 | 代理在 NAT 后时填公网 IP |
@@ -62,8 +62,17 @@ npm run dev
 
 1. **HTTPS**：浏览器要求安全上下文才给麦克风权限，公网部署请配 TLS（反代/Caddy）。
 2. **UDP 50000**：浏览器与代理之间的 WebRTC 依赖此端口，防火墙/安全组需放行。
-3. **服务器证书**：当前 `voice.azsyc.com` 证书已过期（2024-04），建议在服务器上修复
-   Let's Encrypt 自动续期后切换 `MUMBLE_TLS=verify`；过渡期推荐 `pin:` 模式。
+3. **服务器证书**：`voice.azsyc.com` 的 Let's Encrypt 证书已过期（2024-04）。本项目默认使用
+   `pin:` 指纹固定模式（当前指纹已内置），过渡期安全可用。**治本**需在服务器上修复自动续期：
+
+   ```bash
+   # SSH 登录服务器（tencent.azsyc.com / 124.223.83.5）后：
+   sudo certbot renew --force-renewal          # 立即续期
+   sudo systemctl list-timers | grep certbot   # 检查自动续期定时器为何失效
+   sudo systemctl restart mumble-server        # 让 murmur 加载新证书
+   ```
+
+   续期完成后把 `MUMBLE_TLS` 改为 `verify` 即可（指纹会随新证书变化，pin 值需同步更新）。
 4. **服务器密码**：Murmur 已启用服务器密码，网页登录时需填写。
 
 ## 代码结构
