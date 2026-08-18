@@ -73,3 +73,9 @@
     @apply bg-background text-foreground;
   }
 }
+@layer base {
+  body {
+    background-color: #1e1f22;
+    color: #dbdee1;
+  }
+}
