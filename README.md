@@ -25,17 +25,32 @@ WebRTC(Opus)     ◄──────────►   媒体桥(Pion)   ◄─
 
 ## 运行
 
-### Docker（推荐）
+### Docker Compose（推荐）
 
 ```bash
-docker build -t mumble-web .
-docker run -p 8080:8080 -p 50000:50000/udp \
-  -e MUMBLE_SERVER=voice.azsyc.com \
-  -e MUMBLE_TLS='pin:BC:3C:29:BC:A9:C7:C4:73:95:90:E8:B0:4A:65:14:E1:E8:8C:30:F3:BA:94:AB:8B:26:B4:8A:6D:B7:AE:4D:CF' \
-  mumble-web
+cp .env.example .env     # 默认值即可直连 voice.azsyc.com，按需修改
+docker compose up -d
 ```
 
 打开 `http://localhost:8080`，输入用户名与**服务器密码**即可。
+
+常用运维命令：
+
+```bash
+docker compose logs -f            # 查看日志
+docker compose ps                 # 容器状态
+docker compose down               # 停止
+docker compose up -d --build      # 更新代码后重建
+```
+
+纯 Docker（不用 Compose）：
+
+```bash
+docker build -t mumble-web .
+docker run -p 8080:8080 -p 50000:50000/udp mumble-web
+```
+
+> 完整的部署与维护手册见 [DEPLOYMENT.md](DEPLOYMENT.md)。
 
 ### 本地开发
 

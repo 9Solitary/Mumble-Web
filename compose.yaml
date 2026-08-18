@@ -1,0 +1,30 @@
+# Mumble Web 一键部署
+# 用法：
+#   cp .env.example .env   # 按需修改
+#   docker compose up -d
+#
+# 无数据库、无状态、无需 Volume。
+
+services:
+  mumble-web:
+    build: .
+    image: mumble-web:latest
+    container_name: mumble-web
+    restart: unless-stopped
+    ports:
+      # HTTP（页面 + WebSocket 控制信令）
+      - "${PORT:-8080}:8080/tcp"
+      # WebRTC 语音（浏览器 <-> 代理）
+      - "${RTC_UDP_PORT:-50000}:${RTC_UDP_PORT:-50000}/udp"
+    environment:
+      LISTEN: ":8080"
+      STATIC_DIR: /app/dist
+      MUMBLE_SERVER: ${MUMBLE_SERVER:-voice.azsyc.com}
+      MUMBLE_TLS: ${MUMBLE_TLS:-pin:BC:3C:29:BC:A9:C7:C4:73:95:90:E8:B0:4A:65:14:E1:E8:8C:30:F3:BA:94:AB:8B:26:B4:8A:6D:B7:AE:4D:CF}
+      RTC_UDP_PORT: "${RTC_UDP_PORT:-50000}"
+      RTC_PUBLIC_IP: ${RTC_PUBLIC_IP:-}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
