@@ -10,6 +10,17 @@ function formatTime(ts: number): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
+// Mumble 消息允许 HTML，网页端按纯文本安全展示（去除标签）
+function stripHtml(s: string): string {
+  return s
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]*>/g, "")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"');
+}
+
 function MessageRow({ msg }: { msg: TextMessageInfo }) {
   const isServer = msg.sender === 0;
   return (
@@ -29,7 +40,7 @@ function MessageRow({ msg }: { msg: TextMessageInfo }) {
           <span className="text-[11px] text-[#6d6f78]">{formatTime(msg.time)}</span>
         </div>
         <p className="text-sm text-[#dbdee1] break-words whitespace-pre-wrap leading-relaxed">
-          {msg.message}
+          {stripHtml(msg.message)}
         </p>
       </div>
     </div>

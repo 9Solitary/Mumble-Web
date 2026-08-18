@@ -53,11 +53,20 @@ interface AppState {
 
 export const useAppStore = create<AppState>((set, get) => {
   const client = new MumbleClient();
+  let helloReceived = false;
 
-  client.onMessage = (env) => get().handleMessage(env);
+  client.onMessage = (env) => {
+    if (env.type === "hello") helloReceived = true;
+    get().handleMessage(env);
+  };
   client.onClose = () => {
     if (get().connState !== "idle") {
-      set({ connState: "failed", error: "与代理服务器的连接已断开" });
+      set({
+        connState: "failed",
+        error: helloReceived
+          ? "与代理服务器的连接已断开"
+          : "无法连接代理服务器：WebSocket 被网络环境阻断（若在使用在线预览，可能是预览网关不支持 WebSocket，请用 Docker 部署体验完整功能）",
+      });
     }
   };
   client.onRemoteTrack = (session, stream) =>
@@ -101,6 +110,7 @@ export const useAppStore = create<AppState>((set, get) => {
 
     connect: (username, password) => {
       set({ connState: "connecting", error: "" });
+      helloReceived = false;
       client.connect();
       // WS open 后发送登录；hello 消息到达即代表 WS 就绪
       const iv = setInterval(() => {
@@ -109,7 +119,10 @@ export const useAppStore = create<AppState>((set, get) => {
       setTimeout(() => clearInterval(iv), 10000);
       const origHandler = get().handleMessage;
       client.onMessage = (env) => {
-        if (env.type === "hello") clearInterval(iv);
+        if (env.type === "hello") {
+          helloReceived = true;
+          clearInterval(iv);
+        }
         origHandler(env);
       };
     },

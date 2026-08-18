@@ -26,7 +26,7 @@ COPY --from=frontend /app/dist /app/dist
 ENV LISTEN=":8080" \
     STATIC_DIR="/app/dist" \
     MUMBLE_SERVER="mumble.example.com" \
-    MUMBLE_TLS="insecure" \
+    MUMBLE_TLS="verify" \
     RTC_UDP_PORT="50000" \
     RTC_PUBLIC_IP=""
 
