@@ -12,6 +12,7 @@ export class MumbleClient {
   private micTrack: MediaStreamTrack | null = null;
 
   onMessage: ClientEventHandler = () => {};
+  onOpen: () => void = () => {};
   onClose: () => void = () => {};
   onRemoteTrack: (session: number, stream: MediaStream) => void = () => {};
   onRemoteTrackEnded: (session: number) => void = () => {};
@@ -21,6 +22,7 @@ export class MumbleClient {
   connect() {
     const proto = location.protocol === "https:" ? "wss" : "ws";
     const ws = new WebSocket(`${proto}://${location.host}/ws`);
+    ws.onopen = () => this.onOpen();
     ws.onmessage = (ev) => {
       try {
         this.onMessage(JSON.parse(ev.data));

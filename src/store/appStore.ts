@@ -111,20 +111,9 @@ export const useAppStore = create<AppState>((set, get) => {
     connect: (username, password) => {
       set({ connState: "connecting", error: "" });
       helloReceived = false;
+      // WS 打开后立即发送登录请求（onopen 回调，不靠定时器猜测时序）
+      client.onOpen = () => client.send({ type: "connect", username, password });
       client.connect();
-      // WS open 后发送登录；hello 消息到达即代表 WS 就绪
-      const iv = setInterval(() => {
-        client.send({ type: "connect", username, password });
-      }, 300);
-      setTimeout(() => clearInterval(iv), 10000);
-      const origHandler = get().handleMessage;
-      client.onMessage = (env) => {
-        if (env.type === "hello") {
-          helloReceived = true;
-          clearInterval(iv);
-        }
-        origHandler(env);
-      };
     },
 
     disconnect: () => {
