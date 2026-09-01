@@ -39,6 +39,9 @@ docker compose ps          # 状态应为 running (healthy)
 docker compose logs -f     # 观察启动日志，Ctrl+C 退出
 ```
 
+> Dockerfile 默认使用国内加速源构建（`GOPROXY=https://goproxy.cn,direct`、`NPM_REGISTRY_MIRROR=https://registry.npmmirror.com`）。
+> 海外网络构建可覆盖：`docker compose build --build-arg GOPROXY=https://proxy.golang.org,direct --build-arg NPM_REGISTRY_MIRROR=`。
+
 启动日志中应看到：
 
 ```
