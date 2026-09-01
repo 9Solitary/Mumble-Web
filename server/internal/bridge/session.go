@@ -151,7 +151,17 @@ func (s *Session) handle(env Envelope) {
 		})
 	case UpPtt:
 		if env.Active != nil {
-			s.pttActive.Store(*env.Active)
+			log.Printf("ptt: active=%v", *env.Active)
+			wasActive := s.pttActive.Swap(*env.Active)
+			if wasActive && !*env.Active {
+				// 松开按键：补发一个带终止位的空语音包，告知服务器本次发言结束
+				s.withClient(func(c *gumble.Client) {
+					seq := atomic.AddInt64(&s.voiceSeq, 1)
+					if err := c.Conn.WriteAudio(byte(4), 0, seq, true, nil, nil, nil, nil); err != nil {
+						log.Printf("mic terminator: %v", err)
+					}
+				})
+			}
 		}
 	case "rtcOffer": // 浏览器初始 offer（携带 mic track）
 		s.mu.Lock()
@@ -258,7 +268,8 @@ func (s *Session) onMicFrame(opus []byte) {
 		return
 	}
 	seq := atomic.AddInt64(&s.voiceSeq, 1)
-	if err := c.Conn.WriteAudio(byte(4), 0, seq, true, opus, nil, nil, nil); err != nil {
+	// final=false：发言进行中，终止位只在松键时由空包携带（见 UpPtt 处理）
+	if err := c.Conn.WriteAudio(byte(4), 0, seq, false, opus, nil, nil, nil); err != nil {
 		log.Printf("mic forward: %v", err)
 	}
 }
