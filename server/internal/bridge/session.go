@@ -31,9 +31,14 @@ type Session struct {
 	voiceSeq  int64
 
 	// talking 状态跟踪：session -> 最近一次收到语音帧的时间
-	talkingMu sync.Mutex
-	lastVoice map[uint32]time.Time
-	talking   map[uint32]bool
+	talkingMu   sync.Mutex
+	lastVoice   map[uint32]time.Time
+	talking     map[uint32]bool
+	voiceFrames map[uint32]int
+
+	// 语音链路诊断计数
+	micPkts atomic.Int64 // 浏览器->代理 RTP 包数
+	micFwd  atomic.Int64 // 代理->Mumble 转发帧数
 
 	rtcUDPPort int
 	publicIP   string
@@ -46,8 +51,9 @@ func NewSession(ws *websocket.Conn, upstream mumbleconn.Target, udpMux ice.UDPMu
 		send:      make(chan Envelope, 256),
 		done:      make(chan struct{}),
 		upstream:  upstream,
-		lastVoice: make(map[uint32]time.Time),
-		talking:   make(map[uint32]bool),
+		lastVoice:   make(map[uint32]time.Time),
+		talking:     make(map[uint32]bool),
+		voiceFrames: make(map[uint32]int),
 		udpMux:    udpMux,
 		publicIP:  publicIP,
 	}
@@ -228,9 +234,11 @@ func (s *Session) connectMumble(username, password string) {
 	client, err := mumbleconn.Dial(s.upstream, config)
 	if err != nil {
 		rtc.Close()
+		log.Printf("mumble 登录失败 (%s): %v", username, err)
 		s.push(Envelope{Type: DownReject, Reason: err.Error()})
 		return
 	}
+	log.Printf("mumble 登录成功: %s", username)
 	client.RawVoiceHandler = s.onVoicePacket
 
 	s.mu.Lock()
@@ -251,6 +259,13 @@ func (s *Session) onVoicePacket(packet []byte) {
 				log.Printf("voice write: %v", err)
 			}
 		}
+		s.talkingMu.Lock()
+		s.voiceFrames[f.Session]++
+		n := s.voiceFrames[f.Session]
+		s.talkingMu.Unlock()
+		if n%50 == 1 {
+			log.Printf("voice: mumble->rtc session=%d frames=%d bytes=%d", f.Session, n, len(f.Data))
+		}
 		s.markTalking(f.Session)
 		return true
 	})
@@ -258,7 +273,11 @@ func (s *Session) onVoicePacket(packet []byte) {
 
 // onMicFrame 浏览器麦克风 Opus 帧 -> 转发到 Mumble（PTT 门控）。
 func (s *Session) onMicFrame(opus []byte) {
+	pkts := s.micPkts.Add(1)
 	if !s.pttActive.Load() {
+		if pkts%50 == 1 {
+			log.Printf("mic: browser->proxy pkts=%d (PTT 关闭，未转发)", pkts)
+		}
 		return
 	}
 	s.mu.Lock()
@@ -271,6 +290,9 @@ func (s *Session) onMicFrame(opus []byte) {
 	// final=false：发言进行中，终止位只在松键时由空包携带（见 UpPtt 处理）
 	if err := c.Conn.WriteAudio(byte(4), 0, seq, false, opus, nil, nil, nil); err != nil {
 		log.Printf("mic forward: %v", err)
+	}
+	if fwd := s.micFwd.Add(1); fwd%50 == 1 {
+		log.Printf("mic: proxy->mumble fwd=%d bytes=%d", fwd, len(opus))
 	}
 }
 
@@ -351,8 +373,12 @@ func (l *mumbleListener) OnConnect(e *gumble.ConnectEvent) {
 	s := l.s
 	self := e.Client.Self
 	if self == nil {
+		log.Printf("OnConnect 但 Self 为 nil（同步异常）")
+		s.push(Envelope{Type: DownError, Reason: "服务器同步异常：未收到自己的用户信息"})
 		return
 	}
+	log.Printf("mumble 同步完成: session=%d name=%s 频道=%d 用户=%d",
+		self.Session, self.Name, len(e.Client.Channels), len(e.Client.Users))
 	payload := &SelfPayload{Session: self.Session, Name: self.Name}
 	if e.WelcomeMessage != nil {
 		payload.WelcomeMessage = *e.WelcomeMessage
@@ -374,6 +400,7 @@ func (l *mumbleListener) OnDisconnect(e *gumble.DisconnectEvent) {
 	if reason == "" {
 		reason = "与服务器断开连接"
 	}
+	log.Printf("mumble 断开: %s", reason)
 	l.s.push(Envelope{Type: DownDisconnect, Reason: reason})
 }
 

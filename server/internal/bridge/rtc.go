@@ -87,6 +87,7 @@ func newRTCPeer(udpMux ice.UDPMux, publicIP string, send func(Envelope)) (*rtcPe
 			log.Printf("rtc: set local: %v", err)
 			return
 		}
+		log.Printf("rtc: 已发送重协商 offer")
 		send(Envelope{Type: DownRtcOffer, SDP: offer.SDP})
 	})
 
@@ -136,9 +137,15 @@ func (p *rtcPeer) HandleOffer(sdp string) error {
 
 // HandleAnswer 处理浏览器对重协商 offer 的 answer。
 func (p *rtcPeer) HandleAnswer(sdp string) error {
-	return p.pc.SetRemoteDescription(webrtc.SessionDescription{
+	err := p.pc.SetRemoteDescription(webrtc.SessionDescription{
 		Type: webrtc.SDPTypeAnswer, SDP: sdp,
 	})
+	if err != nil {
+		log.Printf("rtc: set remote answer: %v", err)
+	} else {
+		log.Printf("rtc: 浏览器 answer 已应用")
+	}
+	return err
 }
 
 // AddCandidate 添加浏览器侧 ICE candidate。

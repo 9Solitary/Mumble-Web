@@ -107,13 +107,16 @@ export class MumbleClient {
     if (!pc) return;
     try {
       if (env.type === "rtcAnswer" && env.sdp) {
+        console.log("[rtc] 收到代理 answer");
         await pc.setRemoteDescription({ type: "answer", sdp: env.sdp });
       } else if (env.type === "rtcOffer" && env.sdp) {
         // 代理发起的重协商（新说话人加入）
+        console.log("[rtc] 收到代理重协商 offer");
         await pc.setRemoteDescription({ type: "offer", sdp: env.sdp });
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
         this.send({ type: "rtcAnswer", sdp: answer.sdp! });
+        console.log("[rtc] 已回送 answer");
       } else if (env.type === "rtcCandidate" && env.candidate) {
         await pc.addIceCandidate({
           candidate: env.candidate,

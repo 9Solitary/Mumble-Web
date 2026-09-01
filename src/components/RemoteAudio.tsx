@@ -8,7 +8,10 @@ function AudioSink({ stream, volume }: { stream: MediaStream; volume: number }) 
   useEffect(() => {
     if (ref.current && ref.current.srcObject !== stream) {
       ref.current.srcObject = stream;
-      ref.current.play().catch(() => {});
+      ref.current
+        .play()
+        .then(() => console.log("[audio] 播放成功, tracks:", stream.getAudioTracks().length))
+        .catch((e) => console.warn("[audio] 播放失败:", e));
     }
   }, [stream]);
   useEffect(() => {
