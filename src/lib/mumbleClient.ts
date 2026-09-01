@@ -72,9 +72,18 @@ export class MumbleClient {
     };
 
     pc.ontrack = (ev) => {
-      // track.id 形如 "mumble-<session>"
-      const m = /^mumble-(\d+)$/.exec(ev.track.id);
-      const session = m ? parseInt(m[1], 10) : -1;
+      // track/stream id 形如 "mumble-<session>"；部分浏览器会重写 track.id，
+      // 因此优先取 track.id，取不到再退化到 stream id
+      const ids = [ev.track.id, ...(ev.streams ?? []).map((s) => s.id)];
+      let session = -1;
+      for (const id of ids) {
+        const m = /^mumble-(\d+)$/.exec(id);
+        if (m) {
+          session = parseInt(m[1], 10);
+          break;
+        }
+      }
+      console.log("[rtc] 收到远端 track:", ids.join("/"), "-> session", session);
       if (session < 0) return;
       const stream = ev.streams[0] ?? new MediaStream([ev.track]);
       this.onRemoteTrack(session, stream);

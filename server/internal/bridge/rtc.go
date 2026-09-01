@@ -163,7 +163,7 @@ func (p *rtcPeer) WriteVoice(session uint32, opus []byte) error {
 	if !ok && !p.closed {
 		track, err := webrtc.NewTrackLocalStaticSample(
 			webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: 48000, Channels: 2},
-			fmt.Sprintf("mumble-%d", session), "mumble",
+			fmt.Sprintf("mumble-%d", session), fmt.Sprintf("mumble-%d", session),
 		)
 		if err != nil {
 			p.mu.Unlock()
