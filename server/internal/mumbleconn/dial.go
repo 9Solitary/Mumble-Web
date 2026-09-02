@@ -93,5 +93,19 @@ func Dial(t Target, config *gumble.Config) (*gumble.Client, error) {
 		return nil, err
 	}
 	dialer := &net.Dialer{Timeout: dialTimeout}
-	return gumble.DialWithDialer(dialer, t.Address, config, tlsConfig)
+	client, err := gumble.DialWithDialer(dialer, t.Address, config, tlsConfig)
+	if err != nil {
+		return nil, err
+	}
+	// 语音是每 20ms 一个的小包；Nagle 与对端延迟 ACK 叠加会把语音帧攒成
+	// ~40ms 的突发批次，下游听众（尤其移动端）抖动缓冲欠载，听感断续。
+	// 因此上行链路必须关闭 Nagle。
+	if tlsConn, ok := client.Conn.Conn.(*tls.Conn); ok {
+		if nc := tlsConn.NetConn(); nc != nil {
+			if tcpConn, ok := nc.(*net.TCPConn); ok {
+				_ = tcpConn.SetNoDelay(true)
+			}
+		}
+	}
+	return client, nil
 }
