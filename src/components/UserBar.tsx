@@ -56,8 +56,7 @@ function BarButton({
 export function UserBar() {
   const {
     self,
-    talking,
-    transmitting,
+    selfTalking,
     micReady,
     micError,
     pttMode,
@@ -69,8 +68,6 @@ export function UserBar() {
     setTransmitting,
     disconnect,
   } = useAppStore();
-
-  const selfTalking = self ? !!talking[self.session] : false;
 
   // PTT 模式：按住空格说话（输入框聚焦时不触发）
   useEffect(() => {
@@ -102,9 +99,6 @@ export function UserBar() {
 
   if (!self) return null;
 
-  const isTransmitting =
-    micReady && !selfMuted && !selfDeafened && (pttMode === "open" || transmitting);
-
   return (
     <TooltipProvider delayDuration={200}>
       <div className="h-[60px] bg-[#232428] px-3 flex items-center gap-2 shrink-0">
@@ -116,7 +110,7 @@ export function UserBar() {
               ? micError
               : !micReady
                 ? "麦克风初始化中…"
-                : isTransmitting
+                : selfTalking
                   ? "正在发言"
                   : pttMode === "ptt"
                     ? "按住空格说话"

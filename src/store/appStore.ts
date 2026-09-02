@@ -27,6 +27,7 @@ interface AppState {
   users: Record<number, UserInfo>;
   messages: Record<number, TextMessageInfo[]>; // channelId -> 消息
   talking: Record<number, boolean>;
+  selfTalking: boolean; // 自己正在发送语音（本地门控状态，murmur 不回传本人）
   remoteStreams: Record<number, MediaStream>;
   volumes: Record<number, number>; // session -> 0..1.5
 
@@ -88,6 +89,8 @@ export const useAppStore = create<AppState>((set, get) => {
     const open = pttMode === "open" ? !selfMuted && !selfDeafened : transmitting && !selfMuted && !selfDeafened;
     client.setMicEnabled(open);
     client.send({ type: "ptt", active: open });
+    // murmur 不回传本人语音，自己的说话指示由本地门控状态驱动
+    if (get().selfTalking !== open) set({ selfTalking: open });
   };
 
   return {
@@ -100,6 +103,7 @@ export const useAppStore = create<AppState>((set, get) => {
     users: {},
     messages: {},
     talking: {},
+    selfTalking: false,
     remoteStreams: {},
     volumes: {},
     currentChannelId: 0,
@@ -129,6 +133,7 @@ export const useAppStore = create<AppState>((set, get) => {
         users: {},
         messages: {},
         talking: {},
+        selfTalking: false,
         remoteStreams: {},
         micReady: false,
         micError: "",

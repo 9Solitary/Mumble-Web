@@ -12,9 +12,10 @@ import { MicOff, HeadphoneOff, Volume2 } from "lucide-react";
 import type { UserInfo } from "@/lib/protocol";
 
 function MemberRow({ user }: { user: UserInfo }) {
-  const { self, talking, volumes, setVolume, remoteStreams } = useAppStore();
+  const { self, talking, selfTalking, volumes, setVolume, remoteStreams } =
+    useAppStore();
   const isSelf = self?.session === user.session;
-  const isTalking = !!talking[user.session];
+  const isTalking = isSelf ? selfTalking : !!talking[user.session];
   const silenced = user.selfMuted || user.muted || user.suppressed;
   const hasAudio = !!remoteStreams[user.session];
   const volume = volumes[user.session] ?? 1;

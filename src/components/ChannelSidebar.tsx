@@ -6,7 +6,11 @@ import { Volume2, MicOff, HeadphoneOff, Crown, ChevronRight } from "lucide-react
 import type { ChannelInfo, UserInfo } from "@/lib/protocol";
 
 function VoiceUserRow({ user }: { user: UserInfo }) {
-  const talking = useAppStore((s) => s.talking[user.session]);
+  const talking = useAppStore((s) =>
+    s.self?.session === user.session
+      ? s.selfTalking
+      : !!s.talking[user.session],
+  );
   const silenced = user.selfMuted || user.muted || user.suppressed;
   return (
     <div className="flex items-center gap-2 pl-8 pr-3 py-1 rounded-md mx-1 hover:bg-[#35373c] cursor-default group">
