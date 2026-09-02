@@ -11,13 +11,12 @@ services:
     image: mumble-web:latest
     container_name: mumble-web
     restart: unless-stopped
-    ports:
-      # HTTP（页面 + WebSocket 控制信令）
-      - "${PORT:-8080}:8080/tcp"
-      # WebRTC 语音（浏览器 <-> 代理）
-      - "${RTC_UDP_PORT:-50000}:${RTC_UDP_PORT:-50000}/udp"
+    # host 网络：WebRTC 语音走 UDP，docker 端口映射（docker-proxy/NAT）在部分平台
+    # （如 WSL2）不转发 UDP，会导致浏览器↔代理的 ICE 连通性检查失败、语音双向不通。
+    # host 模式下端口由 LISTEN / RTC_UDP_PORT 环境变量直接决定，无需 ports 映射。
+    network_mode: host
     environment:
-      LISTEN: ":8080"
+      LISTEN: ":${PORT:-8080}"
       STATIC_DIR: /app/dist
       MUMBLE_SERVER: ${MUMBLE_SERVER:-mumble.example.com}
       MUMBLE_TLS: ${MUMBLE_TLS:-verify}

@@ -15,9 +15,13 @@
 
 网络要求：
 
-- 容器需要能访问上游 Mumble 服务器（默认 `mumble.example.com`，TCP 64738）
-- 浏览器需要能访问容器的 **HTTP 端口（默认 8080）** 和 **UDP 50000（WebRTC 语音）**
+- 容器使用 **host 网络模式**：需要能访问上游 Mumble 服务器（默认 `mumble.example.com`，TCP 64738）
+- 浏览器需要能访问**宿主机**的 **HTTP 端口（默认 8080）** 和 **UDP 50000（WebRTC 语音）**
 - 公网正式使用建议在前面加一层 HTTPS 反向代理（浏览器要求安全上下文才授予麦克风权限）
+
+> 为什么用 host 网络：WebRTC 语音依赖 UDP，docker 的端口映射（docker-proxy/NAT）
+> 在部分平台（如 WSL2）不转发 UDP，会导致浏览器↔代理的 ICE 连通性检查失败、
+> 语音双向不通。host 模式下端口由 `PORT` / `RTC_UDP_PORT` 环境变量直接决定。
 
 ---
 
