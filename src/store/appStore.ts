@@ -31,7 +31,8 @@ interface AppState {
   remoteStreams: Record<number, MediaStream>;
   volumes: Record<number, number>; // session -> 0..1.5
 
-  currentChannelId: number; // 当前查看的频道（默认跟随自己）
+  currentChannelId: number; // 当前查看的频道（始终跟随自己所在频道）
+  selectedChannelId: number; // 单击选中的频道（仅高亮，不影响聊天视图）
   maxMessageLength: number; // 服务器纯文本消息长度上限（config 信封下发，默认 5000）
   maxImageMessageLength: number; // 含图片消息长度上限（默认 131072）
   micReady: boolean;
@@ -45,6 +46,7 @@ interface AppState {
   connect: (username: string, password: string) => void;
   disconnect: () => void;
   handleMessage: (env: Envelope) => void;
+  selectChannel: (id: number) => void;
   joinChannel: (id: number) => void;
   sendText: (channelId: number, text: string) => void;
   setSelfMute: (mute: boolean) => void;
@@ -107,6 +109,7 @@ export const useAppStore = create<AppState>((set, get) => {
     remoteStreams: {},
     volumes: {},
     currentChannelId: 0,
+    selectedChannelId: 0,
     maxMessageLength: 5000,
     maxImageMessageLength: 131072,
     micReady: false,
@@ -135,6 +138,7 @@ export const useAppStore = create<AppState>((set, get) => {
         talking: {},
         selfTalking: false,
         remoteStreams: {},
+        selectedChannelId: 0,
         micReady: false,
         micError: "",
         transmitting: false,
@@ -157,6 +161,7 @@ export const useAppStore = create<AppState>((set, get) => {
               connState: "connected",
               self: env.self,
               currentChannelId: env.self.channelId,
+              selectedChannelId: env.self.channelId,
             });
             // 登录成功后立即建立语音
             client.startAudio();
@@ -185,10 +190,11 @@ export const useAppStore = create<AppState>((set, get) => {
         case "user":
           if (env.user) {
             set({ users: { ...s.users, [env.user.session]: env.user } });
-            // 自己换频道时跟随
+            // 自己换频道时跟随（聊天视图与选中高亮都跟到所在频道）
             if (s.self && env.user.session === s.self.session) {
               set({
                 currentChannelId: env.user.channelId,
+                selectedChannelId: env.user.channelId,
                 self: { ...s.self, channelId: env.user.channelId },
                 selfMuted: env.user.selfMuted,
                 selfDeafened: env.user.selfDeafened,
@@ -244,9 +250,14 @@ export const useAppStore = create<AppState>((set, get) => {
       }
     },
 
+    // 单击选中：仅高亮，不切换聊天视图、不加入语音（防止误解为已切换）
+    selectChannel: (id) => {
+      set({ selectedChannelId: id });
+    },
+
     joinChannel: (id) => {
       client.send({ type: "joinChannel", channelId: id });
-      set({ currentChannelId: id });
+      set({ currentChannelId: id, selectedChannelId: id });
     },
 
     sendText: (channelId, text) => {

@@ -42,21 +42,22 @@ function ChannelNode({
   usersByChannel: Map<number, UserInfo[]>;
   depth: number;
 }) {
-  const { self, currentChannelId, joinChannel } = useAppStore();
+  const { self, selectedChannelId, selectChannel, joinChannel } = useAppStore();
   const occupants = usersByChannel.get(channel.id) ?? [];
   const isSelfHere = self?.channelId === channel.id;
-  const isCurrent = currentChannelId === channel.id;
+  const isSelected = selectedChannelId === channel.id;
   const children = childrenMap.get(channel.id) ?? [];
 
   return (
     <div>
       <button
-        onClick={() => joinChannel(channel.id)}
-        className={`w-full flex items-center gap-1.5 px-2 py-1.5 mx-1 rounded-md text-left group transition-colors ${
-          isCurrent ? "bg-[#404249] text-white" : "text-[#949ba4] hover:bg-[#35373c] hover:text-[#dbdee1]"
+        onClick={() => selectChannel(channel.id)}
+        onDoubleClick={() => joinChannel(channel.id)}
+        className={`w-full flex items-center gap-1.5 px-2 py-1.5 mx-1 rounded-md text-left group transition-colors select-none ${
+          isSelected ? "bg-[#404249] text-white" : "text-[#949ba4] hover:bg-[#35373c] hover:text-[#dbdee1]"
         }`}
         style={{ width: "calc(100% - 8px)", paddingLeft: `${8 + depth * 12}px` }}
-        title={channel.description || channel.name}
+        title={`${channel.description || channel.name}（双击加入语音）`}
       >
         {children.length > 0 ? (
           <ChevronRight className="w-3 h-3 shrink-0 opacity-60" />
