@@ -17,9 +17,12 @@ WebRTC(Opus)     ◄──────────►   媒体桥(Pion)   ◄─
 
 ## 功能
 
-- Discord 风格三栏布局：频道树（含频道内用户、说话指示灯）/ 聊天 / 成员列表
-- 文字聊天（按频道）
-- 实时语音：按键说话（空格）/ 自由发言、静音、闭麦、单用户音量调节
+- Discord 风格三栏布局：频道树（单击选中高亮、双击加入语音；含频道内用户、说话指示灯）/ 聊天 / 成员列表
+- 文字聊天（按频道，支持粘贴 / 选择图片发送，自动压缩到服务器长度限制内）
+- 实时语音：按键说话（空格）/ 自由发言（VAD 阈值可调）、静音、闭麦；自己的说话指示由本地门控状态驱动
+- 设置面板（参考 Mumble 客户端）：音频输入 / 输出设备选择（热切换，无需重连）、
+  自由发言触发阈值（附实时电平条校准），设置经 localStorage 本地持久化
+- 单用户音量调节与本地屏蔽发言：成员列表 / 频道内用户右键菜单（成员列表左键也可调音量）
 - SRV 解析：自动解析 `_mumble._tcp.mumble.example.com`
 - TLS 三级策略：`verify`（正常校验）/ `pin:<sha256指纹>`（证书固定）/ `insecure`（调试）
 
@@ -97,7 +100,7 @@ src/                  React 前端（shadcn/ui + zustand）
   lib/protocol.ts     WS 协议类型
   lib/mumbleClient.ts WS + WebRTC 客户端
   store/appStore.ts   全局状态
-  components/         界面组件
+  components/         界面组件（频道树 / 聊天 / 成员列表 / 设置面板 / 用户右键菜单）
 server/               Go 代理
   cmd/proxy/          服务入口
   cmd/smoketest/      上游联调工具
@@ -111,4 +114,4 @@ server/               Go 代理
 - [ ] Mumble 原生 UDP 语音（AES-OCB），替换 TCP 隧道
 - [ ] WebTransport 语音通道（替代 WebRTC，浏览器已 Baseline）
 - [ ] 用户头像（Mumble texture 拉取）
-- [ ] 聊天记录持久化、图片消息
+- [ ] 聊天记录持久化
