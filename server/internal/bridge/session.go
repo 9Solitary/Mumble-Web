@@ -142,6 +142,18 @@ func (s *Session) handle(env Envelope) {
 				return
 			}
 			c.Send(&gumble.TextMessage{Channels: []*gumble.Channel{ch}, Message: env.Message})
+			// Murmur 广播频道消息时会把发送者本人排除在接收列表之外，
+			// 因此这里本地回显一条 DownText，让发送方网页能看到自己发的消息。
+			payload := &TextPayload{
+				ChannelIDs: []uint32{ch.ID},
+				Message:    env.Message,
+				Time:       time.Now().Unix(),
+			}
+			if c.Self != nil {
+				payload.Sender = c.Self.Session
+				payload.SenderName = c.Self.Name
+			}
+			s.push(Envelope{Type: DownText, Text: payload})
 		})
 	case UpSelfMute:
 		s.withClient(func(c *gumble.Client) {
@@ -451,7 +463,12 @@ func (l *mumbleListener) OnBanList(e *gumble.BanListEvent)                 {}
 func (l *mumbleListener) OnContextActionChange(e *gumble.ContextActionChangeEvent) {
 }
 func (l *mumbleListener) OnServerConfig(e *gumble.ServerConfigEvent) {
+	payload := &ConfigPayload{}
 	if e.MaximumMessageLength != nil {
-		l.s.push(Envelope{Type: "config", Session: uint32(*e.MaximumMessageLength)})
+		payload.MaxMessageLength = *e.MaximumMessageLength
 	}
+	if e.MaximumImageMessageLength != nil {
+		payload.MaxImageMessageLength = *e.MaximumImageMessageLength
+	}
+	l.s.push(Envelope{Type: DownConfig, Config: payload})
 }

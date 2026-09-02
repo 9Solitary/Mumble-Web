@@ -46,6 +46,11 @@ export interface TextMessageInfo {
   time: number;
 }
 
+export interface ConfigInfo {
+  maxMessageLength: number; // 纯文本消息长度上限
+  maxImageMessageLength: number; // 含图片消息长度上限
+}
+
 export interface Envelope {
   type: string;
   username?: string;
@@ -65,5 +70,6 @@ export interface Envelope {
   channel?: ChannelInfo;
   user?: UserInfo;
   text?: TextMessageInfo;
+  config?: ConfigInfo;
   talking?: { session: number; talking: boolean };
 }

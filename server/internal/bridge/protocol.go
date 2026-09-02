@@ -21,6 +21,7 @@ const (
 	DownRtcOffer    = "rtcOffer" // WebRTC 信令
 	DownRtcIce      = "rtcCandidate"
 	DownError       = "error"
+	DownConfig      = "config" // 服务器配置（消息长度限制等）
 )
 
 // ---- 上行消息（browser -> proxy） ----
@@ -63,6 +64,7 @@ type Envelope struct {
 	User     *UserPayload         `json:"user,omitempty"`
 	Text     *TextPayload         `json:"text,omitempty"`
 	Talking  *TalkingPayload      `json:"talking,omitempty"`
+	Config   *ConfigPayload       `json:"config,omitempty"`
 }
 
 type ServerInfoPayload struct {
@@ -114,4 +116,9 @@ type TextPayload struct {
 type TalkingPayload struct {
 	Session uint32 `json:"session"`
 	Talking bool   `json:"talking"`
+}
+
+type ConfigPayload struct {
+	MaxMessageLength      int `json:"maxMessageLength"`      // 纯文本消息长度上限
+	MaxImageMessageLength int `json:"maxImageMessageLength"` // 含图片消息长度上限（通常大得多）
 }

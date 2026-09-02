@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { useAppStore } from "@/store/appStore";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { UserAvatar } from "./UserAvatar";
-import { Volume2, SendHorizonal } from "lucide-react";
+import { Volume2, SendHorizonal, ImagePlus, Loader2 } from "lucide-react";
+import { imageToMessageDataUrl } from "@/lib/image";
 import type { TextMessageInfo } from "@/lib/protocol";
 
 function formatTime(ts: number): string {
@@ -19,6 +21,30 @@ function stripHtml(s: string): string {
     .replace(/&gt;/g, ">")
     .replace(/&amp;/g, "&")
     .replace(/&quot;/g, '"');
+}
+
+// 提取消息中内嵌的 data: 图片（Mumble 图片消息就是 <img src="data:..."/>）
+function renderMessage(message: string): ReactNode[] {
+  const imgRe = /<img[^>]*?src=["'](data:image\/[a-z0-9.+-]+;base64,[^"']+)["'][^>]*?\/?>/gi;
+  const parts: ReactNode[] = [];
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = imgRe.exec(message))) {
+    if (m.index > last)
+      parts.push(<span key={parts.length}>{stripHtml(message.slice(last, m.index))}</span>);
+    parts.push(
+      <img
+        key={parts.length}
+        src={m[1]}
+        alt="图片"
+        className="mt-1 max-w-sm max-h-64 rounded border border-[#1e1f22]"
+      />,
+    );
+    last = m.index + m[0].length;
+  }
+  if (last < message.length)
+    parts.push(<span key={parts.length}>{stripHtml(message.slice(last))}</span>);
+  return parts;
 }
 
 function MessageRow({ msg }: { msg: TextMessageInfo }) {
@@ -39,18 +65,21 @@ function MessageRow({ msg }: { msg: TextMessageInfo }) {
           </span>
           <span className="text-[11px] text-[#6d6f78]">{formatTime(msg.time)}</span>
         </div>
-        <p className="text-sm text-[#dbdee1] break-words whitespace-pre-wrap leading-relaxed">
-          {stripHtml(msg.message)}
-        </p>
+        <div className="text-sm text-[#dbdee1] break-words whitespace-pre-wrap leading-relaxed">
+          {renderMessage(msg.message)}
+        </div>
       </div>
     </div>
   );
 }
 
 export function ChatArea() {
-  const { channels, currentChannelId, messages, sendText, self } = useAppStore();
+  const { channels, currentChannelId, messages, sendText, self, maxImageMessageLength } =
+    useAppStore();
   const [draft, setDraft] = useState("");
+  const [sendingImage, setSendingImage] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const channel = channels[currentChannelId];
   const channelMessages = messages[currentChannelId] ?? [];
@@ -64,6 +93,42 @@ export function ChatArea() {
     if (!text) return;
     sendText(currentChannelId, text);
     setDraft("");
+  };
+
+  // 图片以 <img src="data:..."/> 内嵌在 HTML 消息中发送（与 Mumble 客户端一致），
+  // 先压缩到服务器消息长度限制以内；输入框里已有的文字会一起发出。
+  const sendImage = async (file: File) => {
+    if (!file.type.startsWith("image/")) return;
+    setSendingImage(true);
+    try {
+      const text = draft.trim();
+      // 预算 = 图片消息长度上限 - 标签/换行开销 - 已有文字长度
+      const budget = Math.max(500, maxImageMessageLength - 64 - text.length);
+      const dataUrl = await imageToMessageDataUrl(file, budget);
+      const parts: string[] = [];
+      if (text) {
+        parts.push(
+          text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"),
+        );
+      }
+      parts.push(`<img src="${dataUrl}"/>`);
+      sendText(currentChannelId, parts.join("<br/>"));
+      setDraft("");
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "图片发送失败");
+    } finally {
+      setSendingImage(false);
+    }
+  };
+
+  const pickImage = (e: React.ClipboardEvent) => {
+    const file = Array.from(e.clipboardData?.files ?? []).find((f) =>
+      f.type.startsWith("image/"),
+    );
+    if (file) {
+      e.preventDefault();
+      void sendImage(file);
+    }
   };
 
   return (
@@ -109,15 +174,39 @@ export function ChatArea() {
       <div className="px-4 pb-5 pt-1 shrink-0">
         <div className="flex items-center gap-2 bg-[#383a40] rounded-lg px-4">
           <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void sendImage(file);
+              e.target.value = "";
+            }}
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={sendingImage}
+            title="发送图片（也可以直接粘贴）"
+            className="text-[#b5bac1] hover:text-white disabled:opacity-30 transition-colors"
+          >
+            {sendingImage ? (
+              <Loader2 className="w-5 h-5 animate-spin" />
+            ) : (
+              <ImagePlus className="w-5 h-5" />
+            )}
+          </button>
+          <input
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
+            onPaste={pickImage}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
                 submit();
               }
             }}
-            placeholder={`发消息到 ${channel?.name ?? ""}`}
+            placeholder={`发消息到 ${channel?.name ?? ""}（可粘贴图片）`}
             className="flex-1 bg-transparent py-2.5 text-sm text-[#dbdee1] placeholder:text-[#6d6f78] outline-none"
           />
           <button

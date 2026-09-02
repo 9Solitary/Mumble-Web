@@ -31,6 +31,8 @@ interface AppState {
   volumes: Record<number, number>; // session -> 0..1.5
 
   currentChannelId: number; // 当前查看的频道（默认跟随自己）
+  maxMessageLength: number; // 服务器纯文本消息长度上限（config 信封下发，默认 5000）
+  maxImageMessageLength: number; // 含图片消息长度上限（默认 131072）
   micReady: boolean;
   micError: string;
   pttMode: "ptt" | "open"; // 按键说话 / 自由发言
@@ -101,6 +103,8 @@ export const useAppStore = create<AppState>((set, get) => {
     remoteStreams: {},
     volumes: {},
     currentChannelId: 0,
+    maxMessageLength: 5000,
+    maxImageMessageLength: 131072,
     micReady: false,
     micError: "",
     pttMode: "ptt",
@@ -131,6 +135,8 @@ export const useAppStore = create<AppState>((set, get) => {
         transmitting: false,
         selfMuted: false,
         selfDeafened: false,
+        maxMessageLength: 5000,
+        maxImageMessageLength: 131072,
       });
     },
 
@@ -211,6 +217,14 @@ export const useAppStore = create<AppState>((set, get) => {
           if (env.talking)
             set({
               talking: { ...s.talking, [env.talking.session]: env.talking.talking },
+            });
+          break;
+        case "config":
+          if (env.config)
+            set({
+              maxMessageLength: env.config.maxMessageLength || 5000,
+              maxImageMessageLength:
+                env.config.maxImageMessageLength || 131072,
             });
           break;
         case "permissionDenied":
