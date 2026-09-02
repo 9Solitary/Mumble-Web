@@ -8,17 +8,19 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { UserAvatar } from "./UserAvatar";
-import { MicOff, HeadphoneOff, Volume2 } from "lucide-react";
+import { UserContextMenu } from "./UserContextMenu";
+import { MicOff, HeadphoneOff, Volume2, VolumeX } from "lucide-react";
 import type { UserInfo } from "@/lib/protocol";
 
 function MemberRow({ user }: { user: UserInfo }) {
-  const { self, talking, selfTalking, volumes, setVolume, remoteStreams } =
+  const { self, talking, selfTalking, volumes, setVolume, remoteStreams, localMuted } =
     useAppStore();
   const isSelf = self?.session === user.session;
   const isTalking = isSelf ? selfTalking : !!talking[user.session];
   const silenced = user.selfMuted || user.muted || user.suppressed;
   const hasAudio = !!remoteStreams[user.session];
   const volume = volumes[user.session] ?? 1;
+  const locallyMuted = !!localMuted[user.session];
 
   const row = (
     <div className="flex items-center gap-2.5 px-2 py-1.5 mx-1 rounded-md hover:bg-[#35373c] cursor-pointer">
@@ -32,6 +34,7 @@ function MemberRow({ user }: { user: UserInfo }) {
           <div className="text-[11px] text-[#6d6f78] truncate">{user.comment}</div>
         )}
       </div>
+      {locallyMuted && <VolumeX className="w-4 h-4 text-[#fa777c] shrink-0" />}
       {(user.selfDeafened || user.deafened) && (
         <HeadphoneOff className="w-4 h-4 text-[#fa777c] shrink-0" />
       )}
@@ -40,30 +43,34 @@ function MemberRow({ user }: { user: UserInfo }) {
   );
 
   // 远端用户可弹出音量调节；自己不需要
-  if (isSelf || !hasAudio) return row;
+  if (isSelf || !hasAudio) {
+    return <UserContextMenu user={user}>{row}</UserContextMenu>;
+  }
   return (
     <Popover>
-      <PopoverTrigger asChild>{row}</PopoverTrigger>
+      <UserContextMenu user={user}>
+        <PopoverTrigger asChild>{row}</PopoverTrigger>
+      </UserContextMenu>
       <PopoverContent
-        side="left"
-        className="w-56 bg-[#111214] border-[#3f4147] text-[#dbdee1]"
-      >
-        <div className="flex items-center gap-2 text-xs text-[#b5bac1]">
-          <Volume2 className="w-4 h-4" />
-          <span className="font-bold uppercase">音量 · {user.name}</span>
-        </div>
-        <Slider
-          className="mt-3"
-          value={[volume * 100]}
-          min={0}
-          max={150}
-          step={5}
-          onValueChange={([v]) => setVolume(user.session, v / 100)}
-        />
-        <div className="mt-1 text-right text-xs text-[#949ba4]">
-          {Math.round(volume * 100)}%
-        </div>
-      </PopoverContent>
+          side="left"
+          className="w-56 bg-[#111214] border-[#3f4147] text-[#dbdee1]"
+        >
+          <div className="flex items-center gap-2 text-xs text-[#b5bac1]">
+            <Volume2 className="w-4 h-4" />
+            <span className="font-bold uppercase">音量 · {user.name}</span>
+          </div>
+          <Slider
+            className="mt-3"
+            value={[volume * 100]}
+            min={0}
+            max={150}
+            step={5}
+            onValueChange={([v]) => setVolume(user.session, v / 100)}
+          />
+          <div className="mt-1 text-right text-xs text-[#949ba4]">
+            {Math.round(volume * 100)}%
+          </div>
+        </PopoverContent>
     </Popover>
   );
 }

@@ -2,7 +2,8 @@ import { useMemo } from "react";
 import { useAppStore } from "@/store/appStore";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { UserAvatar } from "./UserAvatar";
-import { Volume2, MicOff, HeadphoneOff, Crown, ChevronRight } from "lucide-react";
+import { UserContextMenu } from "./UserContextMenu";
+import { Volume2, VolumeX, MicOff, HeadphoneOff, Crown, ChevronRight } from "lucide-react";
 import type { ChannelInfo, UserInfo } from "@/lib/protocol";
 
 function VoiceUserRow({ user }: { user: UserInfo }) {
@@ -11,23 +12,27 @@ function VoiceUserRow({ user }: { user: UserInfo }) {
       ? s.selfTalking
       : !!s.talking[user.session],
   );
+  const locallyMuted = useAppStore((s) => !!s.localMuted[user.session]);
   const silenced = user.selfMuted || user.muted || user.suppressed;
   return (
-    <div className="flex items-center gap-2 pl-8 pr-3 py-1 rounded-md mx-1 hover:bg-[#35373c] cursor-default group">
-      <UserAvatar name={user.name} size={24} talking={!!talking} muted={silenced} />
-      <span
-        className={`text-sm truncate flex-1 ${
-          talking ? "text-white" : silenced ? "text-[#6d6f78]" : "text-[#b5bac1]"
-        }`}
-      >
-        {user.name}
-      </span>
-      {user.prioritySpeaker && <Crown className="w-3.5 h-3.5 text-[#fee75c]" />}
-      {(user.selfDeafened || user.deafened) && (
-        <HeadphoneOff className="w-3.5 h-3.5 text-[#fa777c]" />
-      )}
-      {silenced && <MicOff className="w-3.5 h-3.5 text-[#fa777c]" />}
-    </div>
+    <UserContextMenu user={user}>
+      <div className="flex items-center gap-2 pl-8 pr-3 py-1 rounded-md mx-1 hover:bg-[#35373c] cursor-default group">
+        <UserAvatar name={user.name} size={24} talking={talking} muted={silenced} />
+        <span
+          className={`text-sm truncate flex-1 ${
+            talking ? "text-white" : silenced ? "text-[#6d6f78]" : "text-[#b5bac1]"
+          }`}
+        >
+          {user.name}
+        </span>
+        {user.prioritySpeaker && <Crown className="w-3.5 h-3.5 text-[#fee75c]" />}
+        {locallyMuted && <VolumeX className="w-3.5 h-3.5 text-[#fa777c]" />}
+        {(user.selfDeafened || user.deafened) && (
+          <HeadphoneOff className="w-3.5 h-3.5 text-[#fa777c]" />
+        )}
+        {silenced && <MicOff className="w-3.5 h-3.5 text-[#fa777c]" />}
+      </div>
+    </UserContextMenu>
   );
 }
 

@@ -58,6 +58,7 @@ interface AppState {
   selfTalking: boolean; // 自己正在发送语音（本地门控状态，murmur 不回传本人）
   remoteStreams: Record<number, MediaStream>;
   volumes: Record<number, number>; // session -> 0..1.5
+  localMuted: Record<number, boolean>; // session -> 本地屏蔽（音量强制为 0）
 
   currentChannelId: number; // 当前查看的频道（始终跟随自己所在频道）
   selectedChannelId: number; // 单击选中的频道（仅高亮，不影响聊天视图）
@@ -86,6 +87,7 @@ interface AppState {
   setPttMode: (mode: "ptt" | "open") => void;
   setTransmitting: (on: boolean) => void;
   setVolume: (session: number, v: number) => void;
+  toggleLocalMute: (session: number) => void;
   setInputDevice: (id: string) => void;
   setOutputDevice: (id: string) => void;
   setVadThreshold: (v: number) => void;
@@ -183,6 +185,7 @@ export const useAppStore = create<AppState>((set, get) => {
     selfTalking: false,
     remoteStreams: {},
     volumes: {},
+    localMuted: {},
     currentChannelId: 0,
     selectedChannelId: 0,
     maxMessageLength: 5000,
@@ -217,6 +220,7 @@ export const useAppStore = create<AppState>((set, get) => {
         talking: {},
         selfTalking: false,
         remoteStreams: {},
+        localMuted: {},
         selectedChannelId: 0,
         micReady: false,
         micError: "",
@@ -366,6 +370,13 @@ export const useAppStore = create<AppState>((set, get) => {
     },
     setVolume: (session, v) =>
       set({ volumes: { ...get().volumes, [session]: v } }),
+    toggleLocalMute: (session) =>
+      set({
+        localMuted: {
+          ...get().localMuted,
+          [session]: !get().localMuted[session],
+        },
+      }),
     setInputDevice: (id) => {
       set({ inputDeviceId: id, micError: "" });
       saveSettings({ inputDeviceId: id });
