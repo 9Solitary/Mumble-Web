@@ -132,7 +132,7 @@ export function ChatArea() {
   };
 
   return (
-    <div className="flex-1 flex flex-col bg-[#313338] min-w-0">
+    <div className="flex-1 flex flex-col bg-[#313338] min-w-0 min-h-0">
       {/* 频道标题栏 */}
       <div className="h-12 px-4 flex items-center gap-2 border-b border-[#232428] shadow-sm shrink-0">
         <Volume2 className="w-5 h-5 text-[#949ba4]" />
@@ -148,7 +148,7 @@ export function ChatArea() {
       </div>
 
       {/* 消息流 */}
-      <ScrollArea className="flex-1">
+      <ScrollArea className="flex-1 min-h-0">
         <div className="py-4">
           {channelMessages.length === 0 && (
             <div className="px-4 py-8 text-center">

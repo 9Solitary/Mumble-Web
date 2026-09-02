@@ -112,13 +112,13 @@ export function ChannelSidebar() {
   const topLevel = rootChannel ? (childrenMap.get(rootChannel.id) ?? []) : [];
 
   return (
-    <div className="w-60 bg-[#2b2d31] flex flex-col shrink-0">
+    <div className="w-60 h-full bg-[#2b2d31] flex flex-col shrink-0">
       <div className="h-12 px-4 flex items-center border-b border-[#1e1f22] shadow-sm">
         <h1 className="font-bold text-white text-sm truncate">
           {rootChannel?.name || server?.address || "Mumble 服务器"}
         </h1>
       </div>
-      <ScrollArea className="flex-1">
+      <ScrollArea className="flex-1 min-h-0">
         <div className="py-2 pr-1">
           <div className="px-3 pb-1 text-[11px] font-bold uppercase text-[#949ba4] tracking-wide">
             语音频道
