@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -40,7 +41,7 @@ func newRTCPeer(udpMux ice.UDPMux, publicIP string, send func(Envelope)) (*rtcPe
 			MimeType:    webrtc.MimeTypeOpus,
 			ClockRate:   48000,
 			Channels:    2,
-			SDPFmtpLine: "minptime=10;useinbandfec=1",
+			SDPFmtpLine: "minptime=10;useinbandfec=1;usedtx=1",
 		},
 		PayloadType: 111,
 	}, webrtc.RTPCodecTypeAudio); err != nil {
@@ -89,7 +90,8 @@ func newRTCPeer(udpMux ice.UDPMux, publicIP string, send func(Envelope)) (*rtcPe
 			return
 		}
 		log.Printf("rtc: 已发送重协商 offer")
-		send(Envelope{Type: DownRtcOffer, SDP: offer.SDP})
+		// 同初始 answer：携带 ptime=10，否则重协商后浏览器会退回 20ms 帧
+		send(Envelope{Type: DownRtcOffer, SDP: withPtime(offer.SDP, 10)})
 	})
 
 	pc.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
@@ -169,8 +171,27 @@ func (p *rtcPeer) HandleOffer(sdp string) error {
 	if err := p.pc.SetLocalDescription(answer); err != nil {
 		return err
 	}
-	p.send(Envelope{Type: "rtcAnswer", SDP: answer.SDP})
+	// Mumble 客户端生态（尤其 Mumla 等移动端）按 10ms Opus 帧解码；
+	// 浏览器默认发 20ms 帧会导致其解码断续。在 answer 中声明 ptime=10，
+	// 请求浏览器以 10ms 帧发送。
+	p.send(Envelope{Type: "rtcAnswer", SDP: withPtime(answer.SDP, 10)})
 	return nil
+}
+
+// withPtime 在 SDP 的每个 audio m 段插入 a=ptime:<ms>。
+func withPtime(sdp string, ms int) string {
+	var b strings.Builder
+	for _, ln := range strings.Split(sdp, "\r\n") {
+		if ln == "" {
+			continue
+		}
+		b.WriteString(ln)
+		b.WriteString("\r\n")
+		if strings.HasPrefix(ln, "m=audio ") {
+			fmt.Fprintf(&b, "a=ptime:%d\r\n", ms)
+		}
+	}
+	return b.String()
 }
 
 // HandleAnswer 处理浏览器对重协商 offer 的 answer。
