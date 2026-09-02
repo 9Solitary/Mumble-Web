@@ -30,3 +30,7 @@ dist-ssr
 
 # 本地调试产物
 server/proxy.exe
+
+# 本地运行备份与排查总结（勿提交）
+server/proxy.exe.bak
+问题修复总结.md
