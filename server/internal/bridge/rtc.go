@@ -73,6 +73,7 @@ func newRTCPeer(udpMux ice.UDPMux, publicIP string, send func(Envelope)) (*rtcPe
 		if init.SDPMid != nil {
 			mid = *init.SDPMid
 		}
+		log.Printf("rtc: 通告候选给浏览器: %s", init.Candidate)
 		send(Envelope{Type: DownRtcIce, Candidate: init.Candidate, SDPMid: mid})
 	})
 
@@ -92,7 +93,15 @@ func newRTCPeer(udpMux ice.UDPMux, publicIP string, send func(Envelope)) (*rtcPe
 	})
 
 	pc.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
-		log.Printf("rtc: browser mic track started: %s", track.ID())
+		log.Printf("rtc: browser mic track started: %s (ssrc=%d, pt=%d)", track.ID(), track.SSRC(), track.PayloadType())
+		var (
+			pkts, lost   int
+			lastSeq      uint16
+			lastArrival  time.Time
+			first        = true
+			minB, maxB   int
+			sumB, sumGap int64
+		)
 		for {
 			pkt, _, err := track.ReadRTP()
 			if err != nil {
@@ -101,6 +110,31 @@ func newRTCPeer(udpMux ice.UDPMux, publicIP string, send func(Envelope)) (*rtcPe
 				}
 				return
 			}
+			now := time.Now()
+			pkts++
+			l := len(pkt.Payload)
+			sumB += int64(l)
+			if pkts == 1 || l < minB {
+				minB = l
+			}
+			if l > maxB {
+				maxB = l
+			}
+			if first {
+				first = false
+			} else {
+				gap := int(pkt.SequenceNumber - lastSeq)
+				if gap != 1 {
+					lost += gap - 1
+				}
+				sumGap += now.Sub(lastArrival).Milliseconds()
+			}
+			lastSeq = pkt.SequenceNumber
+			lastArrival = now
+			if pkts%50 == 0 {
+				log.Printf("mic-rtp: pkts=%d lost=%d gapAvg=%dms bytes[min=%d avg=%d max=%d] pt=%d",
+					pkts, lost, sumGap/int64(pkts-1), minB, sumB/int64(pkts), maxB, pkt.PayloadType)
+			}
 			p.mu.Lock()
 			h := p.micHandler
 			p.mu.Unlock()
@@ -108,6 +142,10 @@ func newRTCPeer(udpMux ice.UDPMux, publicIP string, send func(Envelope)) (*rtcPe
 				h(pkt.Payload)
 			}
 		}
+	})
+
+	pc.OnICEConnectionStateChange(func(s webrtc.ICEConnectionState) {
+		log.Printf("rtc: ice state: %s", s)
 	})
 
 	pc.OnConnectionStateChange(func(s webrtc.PeerConnectionState) {
@@ -150,6 +188,7 @@ func (p *rtcPeer) HandleAnswer(sdp string) error {
 
 // AddCandidate 添加浏览器侧 ICE candidate。
 func (p *rtcPeer) AddCandidate(candidate, mid string) error {
+	log.Printf("rtc: 收到浏览器候选: %s", candidate)
 	return p.pc.AddICECandidate(webrtc.ICECandidateInit{
 		Candidate: candidate, SDPMid: &mid,
 	})
