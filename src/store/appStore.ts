@@ -16,6 +16,34 @@ export type ConnState =
   | "ready" // 频道树就绪
   | "failed"; // 被拒/断开
 
+// ---- 本地设置持久化 ----
+const SETTINGS_KEY = "mumble-web.settings";
+
+interface PersistedSettings {
+  inputDeviceId?: string;
+  outputDeviceId?: string;
+  vadThreshold?: number;
+}
+
+function loadSettings(): PersistedSettings {
+  try {
+    return JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? "{}");
+  } catch {
+    return {};
+  }
+}
+
+function saveSettings(patch: PersistedSettings) {
+  try {
+    localStorage.setItem(
+      SETTINGS_KEY,
+      JSON.stringify({ ...loadSettings(), ...patch }),
+    );
+  } catch {
+    /* 隐私模式等场景下静默失败 */
+  }
+}
+
 interface AppState {
   client: MumbleClient;
   connState: ConnState;
@@ -41,6 +69,10 @@ interface AppState {
   transmitting: boolean; // 正在对服务器发送语音
   selfMuted: boolean;
   selfDeafened: boolean;
+  inputDeviceId: string; // 音频输入设备（"" = 系统默认）
+  outputDeviceId: string; // 音频输出设备（"" = 系统默认）
+  vadThreshold: number; // 自由发言触发阈值 0..1（0 = 持续传输）
+  vadActive: boolean; // VAD 当前是否开门（内部状态）
 
   // actions
   connect: (username: string, password: string) => void;
@@ -54,6 +86,9 @@ interface AppState {
   setPttMode: (mode: "ptt" | "open") => void;
   setTransmitting: (on: boolean) => void;
   setVolume: (session: number, v: number) => void;
+  setInputDevice: (id: string) => void;
+  setOutputDevice: (id: string) => void;
+  setVadThreshold: (v: number) => void;
 }
 
 export const useAppStore = create<AppState>((set, get) => {
@@ -82,18 +117,58 @@ export const useAppStore = create<AppState>((set, get) => {
       delete streams[session];
       return { remoteStreams: streams };
     });
-  client.onMicReady = () => set({ micReady: true });
+  client.onMicReady = () => {
+    set({ micReady: true });
+    applyMicGate();
+  };
   client.onMicError = (err) => set({ micError: err });
 
-  // 根据 PTT 模式与静音状态同步「实际是否在发送」
+  // 根据 PTT 模式、VAD 与静音状态同步「实际是否在发送」
   const applyMicGate = () => {
-    const { pttMode, transmitting, selfMuted, selfDeafened } = get();
-    const open = pttMode === "open" ? !selfMuted && !selfDeafened : transmitting && !selfMuted && !selfDeafened;
+    const { pttMode, transmitting, selfMuted, selfDeafened, micReady, vadThreshold, vadActive } =
+      get();
+    const gate =
+      pttMode === "open"
+        ? vadThreshold <= 0 || vadActive // 阈值为 0 = 持续传输
+        : transmitting;
+    const open = gate && !selfMuted && !selfDeafened && micReady;
     client.setMicEnabled(open);
     client.send({ type: "ptt", active: open });
     // murmur 不回传本人语音，自己的说话指示由本地门控状态驱动
     if (get().selfTalking !== open) set({ selfTalking: open });
+    ensureVadLoop();
   };
+
+  // 自由发言 + 阈值 > 0 时的 VAD 轮询：电平超过阈值开门，低于阈值保持 400ms 后关门
+  let vadTimer: number | null = null;
+  let vadLastVoice = 0;
+  const ensureVadLoop = () => {
+    const { pttMode, micReady, vadThreshold } = get();
+    const need = pttMode === "open" && micReady && vadThreshold > 0;
+    if (need && vadTimer == null) {
+      vadLastVoice = 0;
+      vadTimer = window.setInterval(() => {
+        const { vadThreshold: th, vadActive } = get();
+        const level = client.getMicLevel();
+        if (level >= th) {
+          vadLastVoice = Date.now();
+          if (!vadActive) {
+            set({ vadActive: true });
+            applyMicGate();
+          }
+        } else if (vadActive && Date.now() - vadLastVoice > 400) {
+          set({ vadActive: false });
+          applyMicGate();
+        }
+      }, 50);
+    } else if (!need && vadTimer != null) {
+      clearInterval(vadTimer);
+      vadTimer = null;
+      if (get().vadActive) set({ vadActive: false });
+    }
+  };
+
+  const persisted = loadSettings();
 
   return {
     client,
@@ -118,6 +193,10 @@ export const useAppStore = create<AppState>((set, get) => {
     transmitting: false,
     selfMuted: false,
     selfDeafened: false,
+    inputDeviceId: persisted.inputDeviceId ?? "",
+    outputDeviceId: persisted.outputDeviceId ?? "",
+    vadThreshold: persisted.vadThreshold ?? 0,
+    vadActive: false,
 
     connect: (username, password) => {
       set({ connState: "connecting", error: "" });
@@ -144,9 +223,11 @@ export const useAppStore = create<AppState>((set, get) => {
         transmitting: false,
         selfMuted: false,
         selfDeafened: false,
+        vadActive: false,
         maxMessageLength: 5000,
         maxImageMessageLength: 131072,
       });
+      applyMicGate(); // 停止 VAD 轮询并复位门控
     },
 
     handleMessage: (env) => {
@@ -164,7 +245,7 @@ export const useAppStore = create<AppState>((set, get) => {
               selectedChannelId: env.self.channelId,
             });
             // 登录成功后立即建立语音
-            client.startAudio();
+            void client.startAudio(get().inputDeviceId || undefined);
           }
           break;
         case "synced":
@@ -285,5 +366,19 @@ export const useAppStore = create<AppState>((set, get) => {
     },
     setVolume: (session, v) =>
       set({ volumes: { ...get().volumes, [session]: v } }),
+    setInputDevice: (id) => {
+      set({ inputDeviceId: id, micError: "" });
+      saveSettings({ inputDeviceId: id });
+      void client.setInputDevice(id);
+    },
+    setOutputDevice: (id) => {
+      set({ outputDeviceId: id });
+      saveSettings({ outputDeviceId: id });
+    },
+    setVadThreshold: (v) => {
+      set({ vadThreshold: v });
+      saveSettings({ vadThreshold: v });
+      applyMicGate();
+    },
   };
 });

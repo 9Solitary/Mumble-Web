@@ -1,6 +1,7 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useAppStore } from "@/store/appStore";
 import { UserAvatar } from "./UserAvatar";
+import { SettingsDialog } from "./SettingsDialog";
 import {
   Tooltip,
   TooltipContent,
@@ -15,6 +16,7 @@ import {
   PhoneOff,
   Radio,
   Keyboard,
+  Settings,
 } from "lucide-react";
 
 function BarButton({
@@ -68,6 +70,7 @@ export function UserBar() {
     setTransmitting,
     disconnect,
   } = useAppStore();
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // PTT 模式：按住空格说话（输入框聚焦时不触发）
   useEffect(() => {
@@ -147,10 +150,15 @@ export function UserBar() {
           )}
         </BarButton>
 
+        <BarButton onClick={() => setSettingsOpen(true)} tooltip="设置">
+          <Settings className="w-4 h-4" />
+        </BarButton>
+
         <BarButton danger onClick={disconnect} tooltip="断开连接">
           <PhoneOff className="w-4 h-4" />
         </BarButton>
       </div>
+      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </TooltipProvider>
   );
 }

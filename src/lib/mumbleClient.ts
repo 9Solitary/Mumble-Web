@@ -9,7 +9,15 @@ export class MumbleClient {
   private ws: WebSocket | null = null;
   private pc: RTCPeerConnection | null = null;
   private micStream: MediaStream | null = null;
-  private micTrack: MediaStreamTrack | null = null;
+  private micTrack: MediaStreamTrack | null = null; // 原始采集轨：始终开启，供电平检测
+  private rtcTrack: MediaStreamTrack | null = null; // micTrack 的克隆轨：发给 WebRTC，门控只作用于它
+  private micEnabled = false; // 当前门控状态（换输入设备后恢复用）
+
+  // 麦克风电平检测（VAD / 设置页电平条）
+  private audioCtx: AudioContext | null = null;
+  private analyser: AnalyserNode | null = null;
+  private analyserBuf: Float32Array<ArrayBuffer> | null = null;
+  private micSource: MediaStreamAudioSourceNode | null = null;
 
   onMessage: ClientEventHandler = () => {};
   onOpen: () => void = () => {};
@@ -42,21 +50,59 @@ export class MumbleClient {
 
   // ---- 语音（WebRTC） ----
 
-  async startAudio(): Promise<void> {
+  private micConstraints(deviceId?: string): MediaStreamConstraints {
+    return {
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+      },
+    };
+  }
+
+  private setupAnalyser(stream: MediaStream) {
     try {
-      this.micStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
+      this.audioCtx ??= new AudioContext();
+      void this.audioCtx.resume();
+      this.micSource?.disconnect();
+      this.micSource = this.audioCtx.createMediaStreamSource(stream);
+      this.analyser = this.audioCtx.createAnalyser();
+      this.analyser.fftSize = 512;
+      this.micSource.connect(this.analyser);
+      this.analyserBuf = new Float32Array(this.analyser.fftSize);
+    } catch {
+      this.analyser = null;
+      this.analyserBuf = null;
+    }
+  }
+
+  // 麦克风实时电平（时域 RMS，约 0~1）
+  getMicLevel(): number {
+    if (!this.analyser || !this.analyserBuf) return 0;
+    this.analyser.getFloatTimeDomainData(this.analyserBuf);
+    let sum = 0;
+    for (let i = 0; i < this.analyserBuf.length; i++) {
+      sum += this.analyserBuf[i] * this.analyserBuf[i];
+    }
+    return Math.sqrt(sum / this.analyserBuf.length);
+  }
+
+  async startAudio(deviceId?: string): Promise<void> {
+    try {
+      this.micStream = await navigator.mediaDevices.getUserMedia(
+        this.micConstraints(deviceId),
+      );
     } catch (e) {
       this.onMicError(`无法访问麦克风: ${e instanceof Error ? e.message : e}`);
       return;
     }
+    this.setupAnalyser(this.micStream);
     this.micTrack = this.micStream.getAudioTracks()[0] ?? null;
-    if (this.micTrack) this.micTrack.enabled = false; // 默认闭麦，PTT 时开启
+    // 门控打在克隆轨上：原始轨保持开启，否则被禁用的 track 输出静音，
+    // 电平分析器恒为 0，VAD 阈值模式会死锁（门不开→没电平→门更不开）。
+    this.rtcTrack = this.micTrack?.clone() ?? null;
+    if (this.rtcTrack) this.rtcTrack.enabled = this.micEnabled; // 默认闭麦
 
     const pc = new RTCPeerConnection({ iceServers: [] });
     this.pc = pc;
@@ -94,7 +140,7 @@ export class MumbleClient {
       console.log("[rtc] state:", pc.connectionState);
     };
 
-    if (this.micTrack) pc.addTrack(this.micTrack, this.micStream!);
+    if (this.rtcTrack) pc.addTrack(this.rtcTrack, this.micStream!);
 
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
@@ -129,21 +175,68 @@ export class MumbleClient {
   }
 
   setMicEnabled(enabled: boolean) {
-    if (this.micTrack) this.micTrack.enabled = enabled;
+    this.micEnabled = enabled;
+    if (this.rtcTrack) this.rtcTrack.enabled = enabled;
+  }
+
+  // 切换音频输入设备：重新采集并用 replaceTrack 热替换（无需重协商）
+  async setInputDevice(deviceId: string): Promise<void> {
+    if (!this.pc) return; // 未建连时忽略，下次 startAudio 会带上新设置
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia(
+        this.micConstraints(deviceId || undefined),
+      );
+    } catch (e) {
+      this.onMicError(
+        `切换输入设备失败: ${e instanceof Error ? e.message : e}`,
+      );
+      return;
+    }
+    const track = stream.getAudioTracks()[0] ?? null;
+    if (!track) {
+      stream.getTracks().forEach((t) => t.stop());
+      return;
+    }
+    const rtcTrack = track.clone();
+    rtcTrack.enabled = this.micEnabled;
+    try {
+      const sender = this.pc
+        .getSenders()
+        .find((s) => s.track?.kind === "audio");
+      if (sender) await sender.replaceTrack(rtcTrack);
+    } catch (e) {
+      console.warn("[rtc] replaceTrack 失败:", e);
+    }
+    this.rtcTrack?.stop();
+    this.micStream?.getTracks().forEach((t) => t.stop());
+    this.micStream = stream;
+    this.micTrack = track;
+    this.rtcTrack = rtcTrack;
+    this.setupAnalyser(stream);
+    this.onMicReady();
   }
 
   get hasMic(): boolean {
-    return this.micTrack != null;
+    return this.rtcTrack != null;
   }
 
   dispose() {
     this.send({ type: "disconnect" });
     this.pc?.close();
+    this.rtcTrack?.stop();
     this.micStream?.getTracks().forEach((t) => t.stop());
     this.ws?.close();
+    this.micSource?.disconnect();
+    this.micSource = null;
+    this.analyser = null;
+    this.analyserBuf = null;
+    void this.audioCtx?.close();
+    this.audioCtx = null;
     this.pc = null;
     this.micStream = null;
     this.micTrack = null;
+    this.rtcTrack = null;
     this.ws = null;
   }
 }
