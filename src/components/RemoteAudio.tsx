@@ -36,7 +36,8 @@ function AudioSink({
 }
 
 export function RemoteAudio() {
-  const { remoteStreams, volumes, localMuted, outputDeviceId } = useAppStore();
+  const { remoteStreams, volumes, localMuted, outputDeviceId, outputVolume } =
+    useAppStore();
   return (
     <>
       {Object.entries(remoteStreams).map(([session, stream]) => (
@@ -44,7 +45,9 @@ export function RemoteAudio() {
           key={session}
           stream={stream}
           volume={
-            localMuted[Number(session)] ? 0 : (volumes[Number(session)] ?? 1)
+            localMuted[Number(session)]
+              ? 0
+              : (volumes[Number(session)] ?? 1) * outputVolume
           }
           sinkId={outputDeviceId}
         />

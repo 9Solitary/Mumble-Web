@@ -9,15 +9,17 @@ export class MumbleClient {
   private ws: WebSocket | null = null;
   private pc: RTCPeerConnection | null = null;
   private micStream: MediaStream | null = null;
-  private micTrack: MediaStreamTrack | null = null; // 原始采集轨：始终开启，供电平检测
-  private rtcTrack: MediaStreamTrack | null = null; // micTrack 的克隆轨：发给 WebRTC，门控只作用于它
+  private rtcTrack: MediaStreamTrack | null = null; // 增益链输出轨：发给 WebRTC，门控只作用于它
   private micEnabled = false; // 当前门控状态（换输入设备后恢复用）
+  private micGain = 1; // 麦克风增益 0..2（UserBar 悬浮滑条调节）
 
-  // 麦克风电平检测（VAD / 设置页电平条）
+  // 麦克风电平检测（VAD / 设置页电平条）与增益链
   private audioCtx: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
   private analyserBuf: Float32Array<ArrayBuffer> | null = null;
   private micSource: MediaStreamAudioSourceNode | null = null;
+  private gainNode: GainNode | null = null;
+  private gainDest: MediaStreamAudioDestinationNode | null = null;
 
   onMessage: ClientEventHandler = () => {};
   onOpen: () => void = () => {};
@@ -61,15 +63,30 @@ export class MumbleClient {
     };
   }
 
-  private setupAnalyser(stream: MediaStream) {
-    try {
-      this.audioCtx ??= new AudioContext();
+  // 常驻增益链：micSource -> gainNode -> gainDest（rtcTrack 取自 gainDest）。
+  // 换输入设备只替换 micSource，sender 绑定的 gainDest 轨不变，无需重协商；
+  // 门控打在 gainDest 轨的 enabled 上，不影响 analyser 支路（VAD 不会死锁）。
+  private ensureAudioGraph(): AudioContext {
+    if (!this.audioCtx) {
+      this.audioCtx = new AudioContext();
       void this.audioCtx.resume();
+      this.gainNode = this.audioCtx.createGain();
+      this.gainNode.gain.value = this.micGain;
+      this.gainDest = this.audioCtx.createMediaStreamDestination();
+      this.gainNode.connect(this.gainDest);
+    }
+    return this.audioCtx;
+  }
+
+  private attachMicStream(stream: MediaStream) {
+    try {
+      const ctx = this.ensureAudioGraph();
       this.micSource?.disconnect();
-      this.micSource = this.audioCtx.createMediaStreamSource(stream);
-      this.analyser = this.audioCtx.createAnalyser();
+      this.micSource = ctx.createMediaStreamSource(stream);
+      this.analyser = ctx.createAnalyser();
       this.analyser.fftSize = 512;
       this.micSource.connect(this.analyser);
+      this.micSource.connect(this.gainNode!);
       this.analyserBuf = new Float32Array(this.analyser.fftSize);
     } catch {
       this.analyser = null;
@@ -97,11 +114,8 @@ export class MumbleClient {
       this.onMicError(`无法访问麦克风: ${e instanceof Error ? e.message : e}`);
       return;
     }
-    this.setupAnalyser(this.micStream);
-    this.micTrack = this.micStream.getAudioTracks()[0] ?? null;
-    // 门控打在克隆轨上：原始轨保持开启，否则被禁用的 track 输出静音，
-    // 电平分析器恒为 0，VAD 阈值模式会死锁（门不开→没电平→门更不开）。
-    this.rtcTrack = this.micTrack?.clone() ?? null;
+    this.attachMicStream(this.micStream);
+    this.rtcTrack = this.gainDest?.stream.getAudioTracks()[0] ?? null;
     if (this.rtcTrack) this.rtcTrack.enabled = this.micEnabled; // 默认闭麦
 
     const pc = new RTCPeerConnection({ iceServers: [] });
@@ -179,7 +193,14 @@ export class MumbleClient {
     if (this.rtcTrack) this.rtcTrack.enabled = enabled;
   }
 
-  // 切换音频输入设备：重新采集并用 replaceTrack 热替换（无需重协商）
+  // 麦克风增益 0..2（>1 为放大）
+  setMicGain(gain: number) {
+    this.micGain = gain;
+    if (this.gainNode) this.gainNode.gain.value = gain;
+  }
+
+  // 切换音频输入设备：只替换增益链的输入源，gainDest 输出轨不变，
+  // WebRTC sender 无需 replaceTrack，也无需重协商
   async setInputDevice(deviceId: string): Promise<void> {
     if (!this.pc) return; // 未建连时忽略，下次 startAudio 会带上新设置
     let stream: MediaStream;
@@ -198,22 +219,9 @@ export class MumbleClient {
       stream.getTracks().forEach((t) => t.stop());
       return;
     }
-    const rtcTrack = track.clone();
-    rtcTrack.enabled = this.micEnabled;
-    try {
-      const sender = this.pc
-        .getSenders()
-        .find((s) => s.track?.kind === "audio");
-      if (sender) await sender.replaceTrack(rtcTrack);
-    } catch (e) {
-      console.warn("[rtc] replaceTrack 失败:", e);
-    }
-    this.rtcTrack?.stop();
     this.micStream?.getTracks().forEach((t) => t.stop());
     this.micStream = stream;
-    this.micTrack = track;
-    this.rtcTrack = rtcTrack;
-    this.setupAnalyser(stream);
+    this.attachMicStream(stream);
     this.onMicReady();
   }
 
@@ -233,9 +241,10 @@ export class MumbleClient {
     this.analyserBuf = null;
     void this.audioCtx?.close();
     this.audioCtx = null;
+    this.gainNode = null;
+    this.gainDest = null;
     this.pc = null;
     this.micStream = null;
-    this.micTrack = null;
     this.rtcTrack = null;
     this.ws = null;
   }

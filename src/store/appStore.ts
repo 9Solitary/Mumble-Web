@@ -23,6 +23,8 @@ interface PersistedSettings {
   inputDeviceId?: string;
   outputDeviceId?: string;
   vadThreshold?: number;
+  micGain?: number; // 麦克风增益 0..2
+  outputVolume?: number; // 全局输出音量 0..1.5
 }
 
 function loadSettings(): PersistedSettings {
@@ -100,6 +102,8 @@ interface AppState {
   inputDeviceId: string; // 音频输入设备（"" = 系统默认）
   outputDeviceId: string; // 音频输出设备（"" = 系统默认）
   vadThreshold: number; // 自由发言触发阈值 0..1（0 = 持续传输）
+  micGain: number; // 麦克风增益 0..2（UserBar 悬浮滑条）
+  outputVolume: number; // 全局输出音量 0..1.5，与单人音量相乘
   vadActive: boolean; // VAD 当前是否开门（内部状态）
 
   // actions
@@ -119,6 +123,8 @@ interface AppState {
   setInputDevice: (id: string) => void;
   setOutputDevice: (id: string) => void;
   setVadThreshold: (v: number) => void;
+  setMicGain: (v: number) => void;
+  setOutputVolume: (v: number) => void;
 }
 
 export const useAppStore = create<AppState>((set, get) => {
@@ -199,6 +205,7 @@ export const useAppStore = create<AppState>((set, get) => {
   };
 
   const persisted = loadSettings();
+  client.setMicGain(persisted.micGain ?? 1); // 把持久化的增益同步进音频链
 
   return {
     client,
@@ -227,6 +234,8 @@ export const useAppStore = create<AppState>((set, get) => {
     inputDeviceId: persisted.inputDeviceId ?? "",
     outputDeviceId: persisted.outputDeviceId ?? "",
     vadThreshold: persisted.vadThreshold ?? 0,
+    micGain: persisted.micGain ?? 1,
+    outputVolume: persisted.outputVolume ?? 1,
     vadActive: false,
 
     connect: (username, password, serverAddr) => {
@@ -431,6 +440,15 @@ export const useAppStore = create<AppState>((set, get) => {
       set({ vadThreshold: v });
       saveSettings({ vadThreshold: v });
       applyMicGate();
+    },
+    setMicGain: (v) => {
+      set({ micGain: v });
+      saveSettings({ micGain: v });
+      client.setMicGain(v);
+    },
+    setOutputVolume: (v) => {
+      set({ outputVolume: v });
+      saveSettings({ outputVolume: v });
     },
   };
 });
