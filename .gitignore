@@ -34,3 +34,6 @@ server/proxy.exe
 # 本地运行备份与排查总结（勿提交）
 server/proxy.exe.bak
 问题修复总结.md
+
+# 本地规范与笔记（通用参考，勿提交）
+提交规范.md
