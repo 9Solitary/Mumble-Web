@@ -44,6 +44,33 @@ function saveSettings(patch: PersistedSettings) {
   }
 }
 
+// ---- 上次连接身份（用户名/服务器）记忆，供连接页预填 ----
+const IDENTITY_KEY = "mumble-web.lastIdentity";
+
+export interface LastIdentity {
+  username?: string;
+  serverAddr?: string; // "" 或缺省 = 使用代理默认服务器
+}
+
+export function loadIdentity(): LastIdentity {
+  try {
+    return JSON.parse(localStorage.getItem(IDENTITY_KEY) ?? "{}");
+  } catch {
+    return {};
+  }
+}
+
+function saveIdentity(patch: LastIdentity) {
+  try {
+    localStorage.setItem(
+      IDENTITY_KEY,
+      JSON.stringify({ ...loadIdentity(), ...patch }),
+    );
+  } catch {
+    /* 隐私模式等场景下静默失败 */
+  }
+}
+
 interface AppState {
   client: MumbleClient;
   connState: ConnState;
@@ -76,7 +103,7 @@ interface AppState {
   vadActive: boolean; // VAD 当前是否开门（内部状态）
 
   // actions
-  connect: (username: string, password: string) => void;
+  connect: (username: string, password: string, serverAddr?: string) => void;
   disconnect: () => void;
   handleMessage: (env: Envelope) => void;
   selectChannel: (id: number) => void;
@@ -201,11 +228,18 @@ export const useAppStore = create<AppState>((set, get) => {
     vadThreshold: persisted.vadThreshold ?? 0,
     vadActive: false,
 
-    connect: (username, password) => {
+    connect: (username, password, serverAddr) => {
       set({ connState: "connecting", error: "" });
       helloReceived = false;
+      saveIdentity({ username, serverAddr });
       // WS 打开后立即发送登录请求（onopen 回调，不靠定时器猜测时序）
-      client.onOpen = () => client.send({ type: "connect", username, password });
+      client.onOpen = () =>
+        client.send({
+          type: "connect",
+          username,
+          password,
+          ...(serverAddr ? { serverAddr } : {}),
+        });
       client.connect();
     },
 

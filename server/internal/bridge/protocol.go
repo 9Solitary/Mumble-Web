@@ -42,15 +42,16 @@ const (
 type Envelope struct {
 	Type string `json:"type"`
 	// 以下字段按 type 可选填充，保持协议扁平、前端好处理。
-	Username  string `json:"username,omitempty"`
-	Password  string `json:"password,omitempty"`
-	Session   uint32 `json:"session,omitempty"`
-	ChannelID uint32 `json:"channelId,omitempty"`
-	Message   string `json:"message,omitempty"`
-	Active    *bool  `json:"active,omitempty"`
-	Mute      *bool  `json:"mute,omitempty"`
-	Deaf      *bool  `json:"deaf,omitempty"`
-	Reason    string `json:"reason,omitempty"`
+	Username   string `json:"username,omitempty"`
+	Password   string `json:"password,omitempty"`
+	ServerAddr string `json:"serverAddr,omitempty"` // connect 时可选：覆盖代理默认上游服务器
+	Session    uint32 `json:"session,omitempty"`
+	ChannelID  uint32 `json:"channelId,omitempty"`
+	Message    string `json:"message,omitempty"`
+	Active     *bool  `json:"active,omitempty"`
+	Mute       *bool  `json:"mute,omitempty"`
+	Deaf       *bool  `json:"deaf,omitempty"`
+	Reason     string `json:"reason,omitempty"`
 
 	// WebRTC 信令
 	SDP       string `json:"sdp,omitempty"`

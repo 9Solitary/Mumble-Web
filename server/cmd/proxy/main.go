@@ -33,12 +33,13 @@ var upgrader = websocket.Upgrader{
 
 func main() {
 	var (
-		listen     = flag.String("listen", envOr("LISTEN", ":"+envOr("PORT", "8080")), "HTTP 监听地址")
-		server     = flag.String("mumble-server", envOr("MUMBLE_SERVER", "localhost:64738"), "Mumble 服务器（host 或 host:port，无端口时走 SRV 解析）")
-		tlsMode    = flag.String("mumble-tls", envOr("MUMBLE_TLS", "verify"), "上游 TLS 策略: verify | insecure | pin:<sha256指纹>")
-		staticDir  = flag.String("static", envOr("STATIC_DIR", "dist"), "前端静态资源目录")
-		rtcUDPPort = flag.Int("rtc-udp-port", envOrInt("RTC_UDP_PORT", 50000), "WebRTC ICE UDP 端口")
-		publicIP   = flag.String("rtc-public-ip", envOr("RTC_PUBLIC_IP", ""), "代理的公网 IP（NAT 后部署时填写）")
+		listen        = flag.String("listen", envOr("LISTEN", ":"+envOr("PORT", "8080")), "HTTP 监听地址")
+		server        = flag.String("mumble-server", envOr("MUMBLE_SERVER", "localhost:64738"), "Mumble 服务器（host 或 host:port，无端口时走 SRV 解析）")
+		tlsMode       = flag.String("mumble-tls", envOr("MUMBLE_TLS", "verify"), "上游 TLS 策略: verify | insecure | pin:<sha256指纹>")
+		staticDir     = flag.String("static", envOr("STATIC_DIR", "dist"), "前端静态资源目录")
+		rtcUDPPort    = flag.Int("rtc-udp-port", envOrInt("RTC_UDP_PORT", 50000), "WebRTC ICE UDP 端口")
+		publicIP      = flag.String("rtc-public-ip", envOr("RTC_PUBLIC_IP", ""), "代理的公网 IP（NAT 后部署时填写）")
+		allowOverride = flag.Bool("allow-server-override", envOr("ALLOW_SERVER_OVERRIDE", "true") != "false", "允许网页端连接时自选 Mumble 服务器")
 	)
 	flag.Parse()
 
@@ -67,9 +68,15 @@ func main() {
 			return
 		}
 		log.Printf("新会话: %s", r.RemoteAddr)
-		sess := bridge.NewSession(ws, target, udpMux, *publicIP)
+		sess := bridge.NewSession(ws, target, udpMux, *publicIP, *allowOverride)
 		sess.Run()
 		log.Printf("会话结束: %s", r.RemoteAddr)
+	})
+	mux.HandleFunc("/api/server", func(w http.ResponseWriter, r *http.Request) {
+		// 供连接页预填服务器地址；不含 tlsMode，避免把 pin 指纹暴露到界面之外的接口
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"address":%q,"resolved":%q,"allowOverride":%t}`,
+			target.Original, target.Address, *allowOverride)
 	})
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

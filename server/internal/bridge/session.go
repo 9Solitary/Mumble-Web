@@ -20,7 +20,8 @@ type Session struct {
 	send chan Envelope
 	done chan struct{}
 
-	upstream mumbleconn.Target
+	upstream      mumbleconn.Target
+	allowOverride bool // 允许浏览器在 connect 时指定其他上游服务器
 
 	mu        sync.Mutex
 	client    *gumble.Client
@@ -45,17 +46,18 @@ type Session struct {
 	udpMux     ice.UDPMux
 }
 
-func NewSession(ws *websocket.Conn, upstream mumbleconn.Target, udpMux ice.UDPMux, publicIP string) *Session {
+func NewSession(ws *websocket.Conn, upstream mumbleconn.Target, udpMux ice.UDPMux, publicIP string, allowOverride bool) *Session {
 	return &Session{
-		ws:        ws,
-		send:      make(chan Envelope, 256),
-		done:      make(chan struct{}),
-		upstream:  upstream,
-		lastVoice:   make(map[uint32]time.Time),
-		talking:     make(map[uint32]bool),
-		voiceFrames: make(map[uint32]int),
-		udpMux:    udpMux,
-		publicIP:  publicIP,
+		ws:            ws,
+		send:          make(chan Envelope, 256),
+		done:          make(chan struct{}),
+		upstream:      upstream,
+		allowOverride: allowOverride,
+		lastVoice:     make(map[uint32]time.Time),
+		talking:       make(map[uint32]bool),
+		voiceFrames:   make(map[uint32]int),
+		udpMux:        udpMux,
+		publicIP:      publicIP,
 	}
 }
 
@@ -128,7 +130,7 @@ func (s *Session) cleanup() {
 func (s *Session) handle(env Envelope) {
 	switch env.Type {
 	case UpConnect:
-		s.connectMumble(env.Username, env.Password)
+		s.connectMumble(env.Username, env.Password, env.ServerAddr)
 	case UpJoinChannel:
 		s.withClient(func(c *gumble.Client) {
 			if ch := c.Channels[env.ChannelID]; ch != nil && c.Self != nil {
@@ -224,9 +226,25 @@ func (s *Session) withClient(f func(*gumble.Client)) {
 
 // ---- Mumble 连接 ----
 
-func (s *Session) connectMumble(username, password string) {
+func (s *Session) connectMumble(username, password, serverAddr string) {
 	if username == "" {
 		username = "web-guest"
+	}
+
+	upstream := s.upstream
+	if serverAddr != "" && serverAddr != upstream.Original {
+		if !s.allowOverride {
+			s.push(Envelope{Type: DownReject, Reason: "该代理不允许自选服务器"})
+			return
+		}
+		// 浏览器指定了其他上游：按代理的 TLS 策略（含 pin）重新解析
+		t, err := mumbleconn.Resolve(serverAddr, upstream.TLSMode)
+		if err != nil {
+			s.push(Envelope{Type: DownReject, Reason: "服务器地址解析失败: " + err.Error()})
+			return
+		}
+		log.Printf("会话覆盖上游: %s -> %s（默认 %s）", t.Original, t.Address, upstream.Original)
+		upstream = t
 	}
 
 	// 先建 WebRTC 连接（语音桥），再做 Mumble 登录
@@ -243,7 +261,7 @@ func (s *Session) connectMumble(username, password string) {
 	listener := &mumbleListener{s: s}
 	config.Attach(listener)
 
-	client, err := mumbleconn.Dial(s.upstream, config)
+	client, err := mumbleconn.Dial(upstream, config)
 	if err != nil {
 		rtc.Close()
 		log.Printf("mumble 登录失败 (%s): %v", username, err)

@@ -75,6 +75,9 @@ npm run dev
 | `RTC_UDP_PORT` | `50000` | WebRTC ICE UDP 端口（需对浏览器可达） |
 | `RTC_PUBLIC_IP` | 空 | 代理在 NAT 后时填公网 IP |
 | `STATIC_DIR` | `dist` | 前端静态资源目录 |
+| `ALLOW_SERVER_OVERRIDE` | `true` | 允许网页端连接页自选上游服务器（填 `false` 则锁定为 `MUMBLE_SERVER`） |
+
+连接页会显示并预填当前配置的服务器地址/端口，用户可直接修改后连接（TLS 策略沿用代理配置）。
 
 ## 部署注意
 

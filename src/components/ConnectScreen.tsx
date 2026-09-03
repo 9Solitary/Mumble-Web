@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useAppStore } from "@/store/appStore";
+import { useEffect, useState } from "react";
+import { loadIdentity, useAppStore } from "@/store/appStore";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,13 +10,61 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Headphones, Loader2, ShieldAlert, Server } from "lucide-react";
+import { Headphones, Loader2 } from "lucide-react";
+
+// "host:port" 拆分；无端口或非数字端口时整体作为 host
+function splitHostPort(addr: string): { host: string; port: string } {
+  const i = addr.lastIndexOf(":");
+  if (i > 0 && /^\d+$/.test(addr.slice(i + 1))) {
+    return { host: addr.slice(0, i), port: addr.slice(i + 1) };
+  }
+  return { host: addr, port: "" };
+}
 
 export function ConnectScreen() {
-  const { connState, error, server, connect } = useAppStore();
-  const [username, setUsername] = useState("");
+  const { connState, error, connect } = useAppStore();
+  const [identity] = useState(loadIdentity);
+  const [username, setUsername] = useState(identity.username ?? "");
   const [password, setPassword] = useState("");
+  const [host, setHost] = useState(() => splitHostPort(identity.serverAddr ?? "").host);
+  const [port, setPort] = useState(() => splitHostPort(identity.serverAddr ?? "").port);
+  const [defaultAddr, setDefaultAddr] = useState(""); // 代理默认上游（占位提示用）
   const connecting = connState === "connecting" || connState === "connected";
+
+  // 无本地记忆时，用代理当前配置预填服务器地址
+  useEffect(() => {
+    if (identity.serverAddr) return;
+    let cancelled = false;
+    fetch("/api/server")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (cancelled || !d) return;
+        const addr: string = d.resolved || d.address || "";
+        setDefaultAddr(addr);
+        if (addr) {
+          const p = splitHostPort(addr);
+          setHost(p.host);
+          setPort(p.port);
+        }
+      })
+      .catch(() => {
+        /* 接口不可用时留空，连接时使用代理默认 */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [identity.serverAddr]);
+
+  const portTrim = port.trim();
+  const portInvalid =
+    portTrim !== "" &&
+    (!/^\d+$/.test(portTrim) || Number(portTrim) < 1 || Number(portTrim) > 65535);
+  const hostTrim = host.trim();
+  const serverAddr = hostTrim
+    ? portTrim
+      ? `${hostTrim}:${portTrim}`
+      : hostTrim
+    : "";
 
   return (
     <div className="min-h-screen w-full flex items-center justify-center bg-[#1e1f22] relative overflow-hidden">
@@ -37,30 +85,43 @@ export function ConnectScreen() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {server && (
-            <div className="mb-4 rounded-md bg-[#1e1f22] p-3 text-xs text-[#949ba4] space-y-1">
-              <div className="flex items-center gap-2">
-                <Server className="w-3.5 h-3.5 shrink-0" />
-                <span className="truncate">
-                  {server.address} → {server.resolved}
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <ShieldAlert className="w-3.5 h-3.5 shrink-0 text-amber-400" />
-                <span>
-                  TLS: {server.tlsMode} · 语音通道: {server.voice}
-                </span>
-              </div>
-            </div>
-          )}
-
           <form
             className="space-y-4"
             onSubmit={(e) => {
               e.preventDefault();
-              if (username.trim()) connect(username.trim(), password);
+              if (username.trim() && !portInvalid)
+                connect(username.trim(), password, serverAddr);
             }}
           >
+            <div className="space-y-2">
+              <Label htmlFor="server" className="text-xs font-bold uppercase text-[#b5bac1]">
+                服务器地址 / 端口
+              </Label>
+              <div className="flex gap-2">
+                <Input
+                  id="server"
+                  value={host}
+                  onChange={(e) => setHost(e.target.value)}
+                  placeholder={defaultAddr ? splitHostPort(defaultAddr).host : "代理默认服务器"}
+                  className="flex-1 bg-[#1e1f22] border-none text-[#dbdee1] placeholder:text-[#6d6f78] focus-visible:ring-[#5865f2]"
+                />
+                <Input
+                  id="port"
+                  value={port}
+                  onChange={(e) => setPort(e.target.value)}
+                  placeholder="64738"
+                  inputMode="numeric"
+                  className={`w-24 bg-[#1e1f22] border-none text-[#dbdee1] placeholder:text-[#6d6f78] focus-visible:ring-[#5865f2] ${
+                    portInvalid ? "ring-1 ring-[#fa777c]" : ""
+                  }`}
+                />
+              </div>
+              <p className="text-[11px] text-[#6d6f78]">
+                {portInvalid
+                  ? "端口需为 1-65535 的数字"
+                  : "留空则使用代理部署时配置的默认服务器"}
+              </p>
+            </div>
             <div className="space-y-2">
               <Label htmlFor="username" className="text-xs font-bold uppercase text-[#b5bac1]">
                 用户名 <span className="text-[#fa777c]">*</span>
@@ -96,7 +157,7 @@ export function ConnectScreen() {
 
             <Button
               type="submit"
-              disabled={!username.trim() || connecting}
+              disabled={!username.trim() || connecting || portInvalid}
               className="w-full bg-[#5865f2] hover:bg-[#4752c4] text-white font-medium"
             >
               {connecting ? (

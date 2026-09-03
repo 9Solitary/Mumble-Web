@@ -98,6 +98,7 @@ docker compose up -d --build
 | `PORT` | `8080` | 对外 HTTP 端口 |
 | `RTC_UDP_PORT` | `50000` | WebRTC UDP 端口 |
 | `RTC_PUBLIC_IP` | 空 | 代理在 NAT 后时填公网 IP |
+| `ALLOW_SERVER_OVERRIDE` | `true` | 允许网页端连接页自选上游服务器（`false` 锁定为 `MUMBLE_SERVER`） |
 
 ---
 

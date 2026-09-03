@@ -55,6 +55,7 @@ export interface Envelope {
   type: string;
   username?: string;
   password?: string;
+  serverAddr?: string; // connect 时可选：覆盖代理默认上游服务器
   session?: number;
   channelId?: number;
   message?: string;
