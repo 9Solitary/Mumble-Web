@@ -60,7 +60,7 @@ func (l *listener) OnContextActionChange(e *gumble.ContextActionChangeEvent) {}
 func (l *listener) OnServerConfig(e *gumble.ServerConfigEvent) {}
 
 func main() {
-	server := flag.String("server", "mumble.example.com", "Mumble 服务器")
+	server := flag.String("server", "localhost:64738", "Mumble 服务器")
 	tlsMode := flag.String("tls", "insecure", "TLS 策略")
 	user := flag.String("user", "web-smoketest", "用户名")
 	flag.Parse()

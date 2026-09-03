@@ -5,9 +5,9 @@
 
 ```
 浏览器                         Go 代理                      Murmur
-React + shadcn/ui   WebSocket   控制桥(gumble)   TCP+TLS+Protobuf   mumble.example.com
-WebRTC(Opus)     ◄──────────►   媒体桥(Pion)   ◄─────────────────►  (SRV → tencent.
-                 WebRTC/RTP                  Mumble UDPTunnel      example.com:64738)
+React + shadcn/ui   WebSocket   控制桥(gumble)   TCP+TLS+Protobuf   任意 Mumble 服务器
+WebRTC(Opus)     ◄──────────►   媒体桥(Pion)   ◄─────────────────►  （支持 SRV 解析，
+                 WebRTC/RTP                  Mumble UDPTunnel       默认端口 64738）
 ```
 
 - **控制通道**：WebSocket JSON 协议（登录、频道树、用户状态、文字消息、静音/闭麦）
@@ -23,7 +23,7 @@ WebRTC(Opus)     ◄──────────►   媒体桥(Pion)   ◄─
 - 设置面板（参考 Mumble 客户端）：音频输入 / 输出设备选择（热切换，无需重连）、
   自由发言触发阈值（附实时电平条校准），设置经 localStorage 本地持久化
 - 单用户音量调节与本地屏蔽发言：成员列表 / 频道内用户右键菜单（成员列表左键也可调音量）
-- SRV 解析：自动解析 `_mumble._tcp.mumble.example.com`
+- SRV 解析：服务器名不带端口时自动解析 `_mumble._tcp.<name>`
 - TLS 三级策略：`verify`（正常校验）/ `pin:<sha256指纹>`（证书固定）/ `insecure`（调试）
 
 ## 运行
@@ -31,7 +31,7 @@ WebRTC(Opus)     ◄──────────►   媒体桥(Pion)   ◄─
 ### Docker Compose（推荐）
 
 ```bash
-cp .env.example .env     # 默认值即可直连 mumble.example.com，按需修改
+cp .env.example .env     # 编辑 .env，填入你的 Mumble 服务器地址与 TLS 策略
 docker compose up -d
 ```
 
@@ -69,8 +69,8 @@ npm run dev
 
 | 环境变量 | 默认值 | 说明 |
 |---|---|---|
-| `MUMBLE_SERVER` | `mumble.example.com` | 上游服务器；无端口时自动 SRV 解析 |
-| `MUMBLE_TLS` | `pin:<当前证书指纹>` | `verify` / `pin:<指纹>` / `insecure` |
+| `MUMBLE_SERVER` | `localhost:64738` | 上游服务器；无端口时自动 SRV 解析 |
+| `MUMBLE_TLS` | `verify` | `verify` / `pin:<指纹>` / `insecure` |
 | `LISTEN` / `PORT` | `:8080` | HTTP 监听 |
 | `RTC_UDP_PORT` | `50000` | WebRTC ICE UDP 端口（需对浏览器可达） |
 | `RTC_PUBLIC_IP` | 空 | 代理在 NAT 后时填公网 IP |
@@ -80,18 +80,10 @@ npm run dev
 
 1. **HTTPS**：浏览器要求安全上下文才给麦克风权限，公网部署请配 TLS（反代/Caddy）。
 2. **UDP 50000**：浏览器与代理之间的 WebRTC 依赖此端口，防火墙/安全组需放行。
-3. **服务器证书**：`mumble.example.com` 的 Let's Encrypt 证书已过期（2024-04）。本项目默认使用
-   `pin:` 指纹固定模式（当前指纹已内置），过渡期安全可用。**治本**需在服务器上修复自动续期：
-
-   ```bash
-   # SSH 登录服务器（mumble.example.com / 203.0.113.10）后：
-   sudo certbot renew --force-renewal          # 立即续期
-   sudo systemctl list-timers | grep certbot   # 检查自动续期定时器为何失效
-   sudo systemctl restart mumble-server        # 让 murmur 加载新证书
-   ```
-
-   续期完成后把 `MUMBLE_TLS` 改为 `verify` 即可（指纹会随新证书变化，pin 值需同步更新）。
-4. **服务器密码**：Murmur 已启用服务器密码，网页登录时需填写。
+3. **上游服务器证书**：若证书自签或已过期，可用 `MUMBLE_TLS=pin:<sha256指纹>` 固定指纹过渡
+   （指纹获取：`openssl s_client -connect <host>:64738 </dev/null 2>/dev/null | openssl x509 -fingerprint -sha256 -noout`）。
+   证书恢复正常后改回 `verify`（指纹随证书变化，pin 值需同步更新）。
+4. **服务器密码**：若 Murmur 启用了服务器密码，网页登录时需填写。
 
 ## 代码结构
 

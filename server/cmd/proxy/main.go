@@ -34,7 +34,7 @@ var upgrader = websocket.Upgrader{
 func main() {
 	var (
 		listen     = flag.String("listen", envOr("LISTEN", ":"+envOr("PORT", "8080")), "HTTP 监听地址")
-		server     = flag.String("mumble-server", envOr("MUMBLE_SERVER", "mumble.example.com"), "Mumble 服务器（host 或 host:port，无端口时走 SRV 解析）")
+		server     = flag.String("mumble-server", envOr("MUMBLE_SERVER", "localhost:64738"), "Mumble 服务器（host 或 host:port，无端口时走 SRV 解析）")
 		tlsMode    = flag.String("mumble-tls", envOr("MUMBLE_TLS", "verify"), "上游 TLS 策略: verify | insecure | pin:<sha256指纹>")
 		staticDir  = flag.String("static", envOr("STATIC_DIR", "dist"), "前端静态资源目录")
 		rtcUDPPort = flag.Int("rtc-udp-port", envOrInt("RTC_UDP_PORT", 50000), "WebRTC ICE UDP 端口")

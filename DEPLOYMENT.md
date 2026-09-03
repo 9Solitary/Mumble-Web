@@ -15,7 +15,7 @@
 
 网络要求：
 
-- 容器使用 **host 网络模式**：需要能访问上游 Mumble 服务器（默认 `mumble.example.com`，TCP 64738）
+- 容器使用 **host 网络模式**：需要能访问上游 Mumble 服务器（地址在 `.env` 的 `MUMBLE_SERVER` 配置，默认端口 64738）
 - 浏览器需要能访问**宿主机**的 **HTTP 端口（默认 8080）** 和 **UDP 50000（WebRTC 语音）**
 - 公网正式使用建议在前面加一层 HTTPS 反向代理（浏览器要求安全上下文才授予麦克风权限）
 
@@ -32,7 +32,7 @@
 git clone <你的私有仓库地址> mumble-web
 cd mumble-web
 
-# 2. 配置环境变量（默认值即可直连 mumble.example.com，按需修改）
+# 2. 配置环境变量（编辑 .env，填入上游 Mumble 服务器地址与 TLS 策略）
 cp .env.example .env
 
 # 3. 构建并启动
@@ -49,7 +49,7 @@ docker compose logs -f     # 观察启动日志，Ctrl+C 退出
 启动日志中应看到：
 
 ```
-上游 Mumble: mumble.example.com -> mumble.example.com:64738 (TLS: pin:..., SNI: mumble.example.com)
+上游 Mumble: <配置值> -> <解析结果 host:port> (TLS: <策略>, SNI: <服务器名>)
 WebRTC ICE UDP: :50000
 HTTP 监听: :8080
 ```
@@ -93,8 +93,8 @@ docker compose up -d --build
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `MUMBLE_SERVER` | `mumble.example.com` | 上游服务器；无端口自动 SRV 解析 |
-| `MUMBLE_TLS` | `pin:<现网证书指纹>` | `verify` / `pin:<sha256>` / `insecure` |
+| `MUMBLE_SERVER` | `localhost:64738` | 上游服务器；无端口自动 SRV 解析 |
+| `MUMBLE_TLS` | `verify` | `verify` / `pin:<sha256>` / `insecure` |
 | `PORT` | `8080` | 对外 HTTP 端口 |
 | `RTC_UDP_PORT` | `50000` | WebRTC UDP 端口 |
 | `RTC_PUBLIC_IP` | 空 | 代理在 NAT 后时填公网 IP |

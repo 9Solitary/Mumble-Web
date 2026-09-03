@@ -6,8 +6,7 @@ WORKDIR /app
 ARG NPM_REGISTRY_MIRROR=https://registry.npmmirror.com
 COPY package.json package-lock.json ./
 RUN if [ -n "$NPM_REGISTRY_MIRROR" ]; then \
-      sed -i -e "s#https://registry.npmjs.org#$NPM_REGISTRY_MIRROR#g" \
-             -e "s#https://registry.npmmirror.com#$NPM_REGISTRY_MIRROR#g" package-lock.json && \
+      sed -i -e "s#https://registry.npmjs.org#$NPM_REGISTRY_MIRROR#g" package-lock.json && \
       npm config set registry "$NPM_REGISTRY_MIRROR"; \
     fi && \
     for i in 1 2 3; do npm ci --no-audit --no-fund && break || { echo "npm ci 失败，第 $i 次重试"; sleep 5; }; done
@@ -35,7 +34,7 @@ COPY --from=frontend /app/dist /app/dist
 
 ENV LISTEN=":8080" \
     STATIC_DIR="/app/dist" \
-    MUMBLE_SERVER="mumble.example.com" \
+    MUMBLE_SERVER="localhost:64738" \
     MUMBLE_TLS="verify" \
     RTC_UDP_PORT="50000" \
     RTC_PUBLIC_IP=""

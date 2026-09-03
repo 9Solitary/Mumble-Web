@@ -18,7 +18,7 @@ services:
     environment:
       LISTEN: ":${PORT:-8080}"
       STATIC_DIR: /app/dist
-      MUMBLE_SERVER: ${MUMBLE_SERVER:-mumble.example.com}
+      MUMBLE_SERVER: ${MUMBLE_SERVER:-localhost:64738}
       MUMBLE_TLS: ${MUMBLE_TLS:-verify}
       RTC_UDP_PORT: "${RTC_UDP_PORT:-50000}"
       RTC_PUBLIC_IP: ${RTC_PUBLIC_IP:-}
