@@ -105,6 +105,7 @@ interface AppState {
   // actions
   connect: (username: string, password: string, serverAddr?: string) => void;
   disconnect: () => void;
+  leaveVoice: () => void; // 离开当前语音频道，回到 root 大厅（不退出登录）
   handleMessage: (env: Envelope) => void;
   selectChannel: (id: number) => void;
   joinChannel: (id: number) => void;
@@ -266,6 +267,12 @@ export const useAppStore = create<AppState>((set, get) => {
         maxImageMessageLength: 131072,
       });
       applyMicGate(); // 停止 VAD 轮询并复位门控
+    },
+
+    // 挂断语音：移回 root 频道（大厅），保持登录与麦克风状态不变
+    leaveVoice: () => {
+      const root = Object.values(get().channels).find((c) => c.parentId < 0);
+      get().joinChannel(root?.id ?? 0);
     },
 
     handleMessage: (env) => {

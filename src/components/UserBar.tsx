@@ -22,12 +22,14 @@ import {
 function BarButton({
   active,
   danger,
+  disabled,
   onClick,
   tooltip,
   children,
 }: {
   active?: boolean;
   danger?: boolean;
+  disabled?: boolean;
   onClick: () => void;
   tooltip: string;
   children: React.ReactNode;
@@ -37,12 +39,15 @@ function BarButton({
       <TooltipTrigger asChild>
         <button
           onClick={onClick}
+          disabled={disabled}
           className={`w-8 h-8 rounded-md flex items-center justify-center transition-colors ${
-            danger
-              ? "bg-[#ed4245] text-white hover:bg-[#c93437]"
-              : active
-                ? "bg-[#4e5058] text-white"
-                : "text-[#b5bac1] hover:bg-[#4e5058] hover:text-white"
+            disabled
+              ? "text-[#4e5058] cursor-not-allowed"
+              : danger
+                ? "bg-[#ed4245] text-white hover:bg-[#c93437]"
+                : active
+                  ? "bg-[#4e5058] text-white"
+                  : "text-[#b5bac1] hover:bg-[#4e5058] hover:text-white"
           }`}
         >
           {children}
@@ -64,13 +69,16 @@ export function UserBar() {
     pttMode,
     selfMuted,
     selfDeafened,
+    channels,
     setSelfMute,
     setSelfDeaf,
     setPttMode,
     setTransmitting,
-    disconnect,
+    leaveVoice,
   } = useAppStore();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const rootChannelId =
+    Object.values(channels).find((c) => c.parentId < 0)?.id ?? 0;
 
   // PTT 模式：按住空格说话（输入框聚焦时不触发）
   useEffect(() => {
@@ -104,7 +112,7 @@ export function UserBar() {
 
   return (
     <TooltipProvider delayDuration={200}>
-      <div className="h-[60px] bg-[#232428] px-3 flex items-center gap-2 shrink-0">
+      <div className="h-[60px] w-60 bg-[#232428] px-3 flex items-center gap-2 shrink-0">
         <UserAvatar name={self.name} size={36} talking={selfTalking} />
         <div className="min-w-0 flex-1">
           <div className="text-sm font-semibold text-white truncate">{self.name}</div>
@@ -154,7 +162,16 @@ export function UserBar() {
           <Settings className="w-4 h-4" />
         </BarButton>
 
-        <BarButton danger onClick={disconnect} tooltip="断开连接">
+        <BarButton
+          danger
+          disabled={self.channelId === rootChannelId}
+          onClick={leaveVoice}
+          tooltip={
+            self.channelId === rootChannelId
+              ? "已在大厅"
+              : "离开语音（回到大厅）"
+          }
+        >
           <PhoneOff className="w-4 h-4" />
         </BarButton>
       </div>

@@ -17,7 +17,8 @@ import {
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Slider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
-import { Mic, Volume2, Radio } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Mic, Volume2, Radio, LogOut } from "lucide-react";
 
 const DEFAULT_DEVICE = "default"; // Radix Select 不允许空字符串 value
 
@@ -68,6 +69,7 @@ export function SettingsDialog({
     setOutputDevice,
     setVadThreshold,
     setPttMode,
+    disconnect,
   } = useAppStore();
   const { inputs, outputs } = useAudioDevices(open);
   const [level, setLevel] = useState(0);
@@ -209,6 +211,21 @@ export function SettingsDialog({
                 </p>
               </div>
             )}
+          </div>
+
+          {/* 退出登录 */}
+          <div className="border-t border-[#3f4147] pt-4">
+            <Button
+              variant="ghost"
+              className="w-full bg-[#ed4245]/10 text-[#fa777c] hover:bg-[#ed4245]/20 hover:text-[#fa777c]"
+              onClick={() => {
+                onOpenChange(false);
+                disconnect();
+              }}
+            >
+              <LogOut className="w-4 h-4 mr-2" />
+              退出登录（返回连接页）
+            </Button>
           </div>
         </div>
       </DialogContent>
