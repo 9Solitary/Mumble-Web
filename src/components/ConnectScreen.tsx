@@ -21,8 +21,9 @@ function splitHostPort(addr: string): { host: string; port: string } {
   return { host: addr, port: "" };
 }
 
-export function ConnectScreen() {
+export function ConnectScreen({ inviteToken }: { inviteToken?: string }) {
   const { connState, error, connect } = useAppStore();
+  const inviteMode = inviteToken != null;
   const [identity] = useState(loadIdentity);
   const [username, setUsername] = useState(identity.username ?? "");
   const [password, setPassword] = useState("");
@@ -31,9 +32,9 @@ export function ConnectScreen() {
   const [defaultAddr, setDefaultAddr] = useState(""); // 代理默认上游（占位提示用）
   const connecting = connState === "connecting" || connState === "connected";
 
-  // 无本地记忆时，用代理当前配置预填服务器地址
+  // 无本地记忆时，用代理当前配置预填服务器地址（邀请模式不展示服务器，无需预填）
   useEffect(() => {
-    if (identity.serverAddr) return;
+    if (inviteMode || identity.serverAddr) return;
     let cancelled = false;
     fetch("/api/server")
       .then((r) => (r.ok ? r.json() : null))
@@ -53,7 +54,7 @@ export function ConnectScreen() {
     return () => {
       cancelled = true;
     };
-  }, [identity.serverAddr]);
+  }, [identity.serverAddr, inviteMode]);
 
   const portTrim = port.trim();
   const portInvalid =
@@ -81,7 +82,9 @@ export function ConnectScreen() {
           </div>
           <CardTitle className="text-2xl text-white">Mumble Web</CardTitle>
           <CardDescription className="text-[#b5bac1]">
-            连接到你的 Mumble 语音服务器
+            {inviteMode
+              ? "你正通过邀请链接加入，服务器由邀请方指定"
+              : "连接到你的 Mumble 语音服务器"}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -89,10 +92,12 @@ export function ConnectScreen() {
             className="space-y-4"
             onSubmit={(e) => {
               e.preventDefault();
-              if (username.trim() && !portInvalid)
-                connect(username.trim(), password, serverAddr);
+              if (!username.trim() || (!inviteMode && portInvalid)) return;
+              if (inviteMode) connect(username.trim(), "", "", inviteToken);
+              else connect(username.trim(), password, serverAddr);
             }}
           >
+            {!inviteMode && (
             <div className="space-y-2">
               <Label htmlFor="server" className="text-xs font-bold uppercase text-[#b5bac1]">
                 服务器地址 / 端口
@@ -122,6 +127,7 @@ export function ConnectScreen() {
                   : "留空则使用代理部署时配置的默认服务器"}
               </p>
             </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="username" className="text-xs font-bold uppercase text-[#b5bac1]">
                 用户名 <span className="text-[#fa777c]">*</span>
@@ -135,6 +141,7 @@ export function ConnectScreen() {
                 className="bg-[#1e1f22] border-none text-[#dbdee1] placeholder:text-[#6d6f78] focus-visible:ring-[#5865f2]"
               />
             </div>
+            {!inviteMode && (
             <div className="space-y-2">
               <Label htmlFor="password" className="text-xs font-bold uppercase text-[#b5bac1]">
                 服务器密码
@@ -148,6 +155,7 @@ export function ConnectScreen() {
                 className="bg-[#1e1f22] border-none text-[#dbdee1] placeholder:text-[#6d6f78] focus-visible:ring-[#5865f2]"
               />
             </div>
+            )}
 
             {error && (
               <div className="rounded-md bg-[#fa777c]/10 border border-[#fa777c]/30 px-3 py-2 text-sm text-[#fa777c]">

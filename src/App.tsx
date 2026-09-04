@@ -1,13 +1,12 @@
+import { Route, Routes } from "react-router";
 import { useAppStore } from "@/store/appStore";
 import { ConnectScreen } from "@/components/ConnectScreen";
-import { ChannelSidebar } from "@/components/ChannelSidebar";
-import { ChatArea } from "@/components/ChatArea";
-import { MemberList } from "@/components/MemberList";
-import { UserBar } from "@/components/UserBar";
-import { RemoteAudio } from "@/components/RemoteAudio";
+import { MainLayout } from "@/components/MainLayout";
+import { InvitePage } from "@/pages/InvitePage";
 import { Loader2 } from "lucide-react";
 
-export default function App() {
+// 普通连接流程：按连接状态在登录页 / 同步中 / 主界面之间切换
+function HomeFlow() {
   const connState = useAppStore((s) => s.connState);
 
   if (connState === "idle" || connState === "failed" || connState === "connecting") {
@@ -23,17 +22,14 @@ export default function App() {
     );
   }
 
+  return <MainLayout />;
+}
+
+export default function App() {
   return (
-    <div className="h-screen w-screen flex bg-[#313338] text-[#dbdee1] overflow-hidden">
-      <div className="flex flex-col shrink-0">
-        <div className="flex-1 flex min-h-0">
-          <ChannelSidebar />
-        </div>
-        <UserBar />
-      </div>
-      <ChatArea />
-      <MemberList />
-      <RemoteAudio />
-    </div>
+    <Routes>
+      <Route path="/invite/:token" element={<InvitePage />} />
+      <Route path="*" element={<HomeFlow />} />
+    </Routes>
   );
 }

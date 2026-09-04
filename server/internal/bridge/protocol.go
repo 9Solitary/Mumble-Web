@@ -27,7 +27,7 @@ const (
 // ---- 上行消息（browser -> proxy） ----
 
 const (
-	UpConnect     = "connect" // {username, password}
+	UpConnect     = "connect" // {username, password} 或 {username, inviteToken}（一次性邀请）
 	UpJoinChannel = "joinChannel"
 	UpSendText    = "sendText"
 	UpSelfMute    = "setSelfMute"
@@ -42,9 +42,10 @@ const (
 type Envelope struct {
 	Type string `json:"type"`
 	// 以下字段按 type 可选填充，保持协议扁平、前端好处理。
-	Username   string `json:"username,omitempty"`
-	Password   string `json:"password,omitempty"`
-	ServerAddr string `json:"serverAddr,omitempty"` // connect 时可选：覆盖代理默认上游服务器
+	Username    string `json:"username,omitempty"`
+	Password    string `json:"password,omitempty"`
+	ServerAddr  string `json:"serverAddr,omitempty"`  // connect 时可选：覆盖代理默认上游服务器
+	InviteToken string `json:"inviteToken,omitempty"` // connect 时可选：一次性邀请 token（服务器/密码以服务端存储为准）
 	Session    uint32 `json:"session,omitempty"`
 	ChannelID  uint32 `json:"channelId,omitempty"`
 	Message    string `json:"message,omitempty"`

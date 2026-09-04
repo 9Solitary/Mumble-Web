@@ -8,6 +8,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -15,12 +16,14 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/pion/ice/v4"
 	"github.com/pion/webrtc/v4"
 
 	"mumbleweb/server/internal/bridge"
+	"mumbleweb/server/internal/invite"
 	"mumbleweb/server/internal/mumbleconn"
 )
 
@@ -40,8 +43,20 @@ func main() {
 		rtcUDPPort    = flag.Int("rtc-udp-port", envOrInt("RTC_UDP_PORT", 50000), "WebRTC ICE UDP 端口")
 		publicIP      = flag.String("rtc-public-ip", envOr("RTC_PUBLIC_IP", ""), "代理的公网 IP（NAT 后部署时填写）")
 		allowOverride = flag.Bool("allow-server-override", envOr("ALLOW_SERVER_OVERRIDE", "true") != "false", "允许网页端连接时自选 Mumble 服务器")
+		inviteSecret  = flag.String("invite-secret", envOr("INVITE_SECRET", ""), "邀请链接 API 的 Bearer 密钥（留空则关闭邀请功能）")
+		inviteTTL     = flag.Duration("invite-ttl", envOrDuration("INVITE_TTL", 30*time.Minute), "邀请链接有效期")
 	)
 	flag.Parse()
+
+	// 邀请存储：仅内存态，重启即清空（符合一次性短时效语义）
+	var inviteStore *invite.Store
+	if *inviteSecret != "" {
+		inviteStore = invite.NewStore(*inviteTTL)
+		inviteStore.StartCleaner(make(chan struct{}))
+		log.Printf("邀请功能已启用: TTL=%s", *inviteTTL)
+	} else {
+		log.Printf("邀请功能未启用（INVITE_SECRET 未配置）")
+	}
 
 	target, err := mumbleconn.Resolve(*server, *tlsMode)
 	if err != nil {
@@ -68,7 +83,7 @@ func main() {
 			return
 		}
 		log.Printf("新会话: %s", r.RemoteAddr)
-		sess := bridge.NewSession(ws, target, udpMux, *publicIP, *allowOverride)
+		sess := bridge.NewSession(ws, target, udpMux, *publicIP, *allowOverride, inviteStore)
 		sess.Run()
 		log.Printf("会话结束: %s", r.RemoteAddr)
 	})
@@ -77,6 +92,50 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintf(w, `{"address":%q,"resolved":%q,"allowOverride":%t}`,
 			target.Original, target.Address, *allowOverride)
+	})
+	// 邀请创建：供 QQ 机器人等 bot 后端调用，需 Bearer 鉴权。
+	mux.HandleFunc("POST /api/invites", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if inviteStore == nil {
+			http.Error(w, `{"error":"邀请功能未启用"}`, http.StatusForbidden)
+			return
+		}
+		if r.Header.Get("Authorization") != "Bearer "+*inviteSecret {
+			http.Error(w, `{"error":"未授权"}`, http.StatusUnauthorized)
+			return
+		}
+		var req struct {
+			ServerAddr string `json:"serverAddr"`
+			Password   string `json:"password"`
+		}
+		// 空 body 视为默认配置邀请
+		if r.Body != nil {
+			_ = json.NewDecoder(r.Body).Decode(&req)
+		}
+		inv, err := inviteStore.Create(req.ServerAddr, req.Password)
+		if err != nil {
+			http.Error(w, `{"error":"生成邀请失败"}`, http.StatusInternalServerError)
+			return
+		}
+		scheme := "http"
+		if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+			scheme = "https"
+		}
+		url := fmt.Sprintf("%s://%s/invite/%s", scheme, r.Host, inv.Token)
+		log.Printf("创建邀请: token=%s... server=%q 有效期至 %s",
+			inv.Token[:8], req.ServerAddr, inv.ExpiresAt.Format(time.RFC3339))
+		fmt.Fprintf(w, `{"token":%q,"url":%q,"expiresAt":%d}`,
+			inv.Token, url, inv.ExpiresAt.Unix())
+	})
+	// 邀请校验：前端打开邀请链接时调用；永不返回密码。
+	mux.HandleFunc("GET /api/invites/{token}", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		token := r.PathValue("token")
+		if inviteStore == nil || !inviteStore.Validate(token) {
+			fmt.Fprint(w, `{"valid":false,"reason":"邀请链接无效、已过期或已被使用"}`)
+			return
+		}
+		fmt.Fprint(w, `{"valid":true}`)
 	})
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -120,6 +179,15 @@ func envOrInt(key string, def int) int {
 		var n int
 		if _, err := fmt.Sscan(v, &n); err == nil {
 			return n
+		}
+	}
+	return def
+}
+
+func envOrDuration(key string, def time.Duration) time.Duration {
+	if v := os.Getenv(key); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			return d
 		}
 	}
 	return def

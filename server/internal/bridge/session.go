@@ -10,6 +10,7 @@ import (
 	"github.com/pion/ice/v4"
 
 	"mumbleweb/server/internal/gumble"
+	"mumbleweb/server/internal/invite"
 	"mumbleweb/server/internal/mumbleconn"
 )
 
@@ -22,6 +23,9 @@ type Session struct {
 
 	upstream      mumbleconn.Target
 	allowOverride bool // 允许浏览器在 connect 时指定其他上游服务器
+
+	invites     *invite.Store // 一次性邀请存储（nil 表示邀请功能未启用）
+	inviteToken string        // 本会话认领的邀请 token，会话结束时作废
 
 	mu        sync.Mutex
 	client    *gumble.Client
@@ -46,13 +50,14 @@ type Session struct {
 	udpMux     ice.UDPMux
 }
 
-func NewSession(ws *websocket.Conn, upstream mumbleconn.Target, udpMux ice.UDPMux, publicIP string, allowOverride bool) *Session {
+func NewSession(ws *websocket.Conn, upstream mumbleconn.Target, udpMux ice.UDPMux, publicIP string, allowOverride bool, invites *invite.Store) *Session {
 	return &Session{
 		ws:            ws,
 		send:          make(chan Envelope, 256),
 		done:          make(chan struct{}),
 		upstream:      upstream,
 		allowOverride: allowOverride,
+		invites:       invites,
 		lastVoice:     make(map[uint32]time.Time),
 		talking:       make(map[uint32]bool),
 		voiceFrames:   make(map[uint32]int),
@@ -123,6 +128,11 @@ func (s *Session) cleanup() {
 	if s.client != nil {
 		s.client.Disconnect()
 	}
+	if s.inviteToken != "" && s.invites != nil {
+		// 会话结束（退出登录/断线）：一次性邀请立即作废
+		s.invites.Delete(s.inviteToken)
+		s.inviteToken = ""
+	}
 }
 
 // ---- 上行命令分发 ----
@@ -130,7 +140,7 @@ func (s *Session) cleanup() {
 func (s *Session) handle(env Envelope) {
 	switch env.Type {
 	case UpConnect:
-		s.connectMumble(env.Username, env.Password, env.ServerAddr)
+		s.handleConnect(env)
 	case UpJoinChannel:
 		s.withClient(func(c *gumble.Client) {
 			if ch := c.Channels[env.ChannelID]; ch != nil && c.Self != nil {
@@ -226,20 +236,49 @@ func (s *Session) withClient(f func(*gumble.Client)) {
 
 // ---- Mumble 连接 ----
 
-func (s *Session) connectMumble(username, password, serverAddr string) {
+// handleConnect 分发 connect 命令：携带 inviteToken 时走一次性邀请通道，
+// 服务器/密码以服务端存储为准，忽略客户端提交的对应字段。
+func (s *Session) handleConnect(env Envelope) {
+	if env.InviteToken == "" {
+		s.connectMumble(env.Username, env.Password, env.ServerAddr, false, "")
+		return
+	}
+	if s.invites == nil {
+		s.push(Envelope{Type: DownReject, Reason: "邀请功能未启用"})
+		return
+	}
+	inv, ok := s.invites.Claim(env.InviteToken)
+	if !ok {
+		s.push(Envelope{Type: DownReject, Reason: "邀请链接无效或已被使用"})
+		return
+	}
+	log.Printf("邀请认领: token=%s... 用户=%s", env.InviteToken[:8], env.Username)
+	s.connectMumble(env.Username, inv.Password, inv.ServerAddr, true, inv.Token)
+}
+
+func (s *Session) connectMumble(username, password, serverAddr string, trusted bool, inviteToken string) {
+	// 登录失败时释放邀请认领，允许 TTL 内重试
+	releaseInvite := func() {
+		if inviteToken != "" && s.invites != nil {
+			s.invites.Release(inviteToken)
+		}
+	}
+
 	if username == "" {
 		username = "web-guest"
 	}
 
 	upstream := s.upstream
 	if serverAddr != "" && serverAddr != upstream.Original {
-		if !s.allowOverride {
+		if !trusted && !s.allowOverride {
+			releaseInvite()
 			s.push(Envelope{Type: DownReject, Reason: "该代理不允许自选服务器"})
 			return
 		}
-		// 浏览器指定了其他上游：按代理的 TLS 策略（含 pin）重新解析
+		// 浏览器（或邀请）指定了其他上游：按代理的 TLS 策略（含 pin）重新解析
 		t, err := mumbleconn.Resolve(serverAddr, upstream.TLSMode)
 		if err != nil {
+			releaseInvite()
 			s.push(Envelope{Type: DownReject, Reason: "服务器地址解析失败: " + err.Error()})
 			return
 		}
@@ -250,6 +289,7 @@ func (s *Session) connectMumble(username, password, serverAddr string) {
 	// 先建 WebRTC 连接（语音桥），再做 Mumble 登录
 	rtc, err := newRTCPeer(s.udpMux, s.publicIP, s.push)
 	if err != nil {
+		releaseInvite()
 		s.push(Envelope{Type: DownError, Reason: "WebRTC 初始化失败: " + err.Error()})
 		return
 	}
@@ -264,6 +304,7 @@ func (s *Session) connectMumble(username, password, serverAddr string) {
 	client, err := mumbleconn.Dial(upstream, config)
 	if err != nil {
 		rtc.Close()
+		releaseInvite()
 		log.Printf("mumble 登录失败 (%s): %v", username, err)
 		s.push(Envelope{Type: DownReject, Reason: err.Error()})
 		return
@@ -275,6 +316,7 @@ func (s *Session) connectMumble(username, password, serverAddr string) {
 	s.client = client
 	s.rtc = rtc
 	s.connected = true
+	s.inviteToken = inviteToken
 	s.mu.Unlock()
 }
 

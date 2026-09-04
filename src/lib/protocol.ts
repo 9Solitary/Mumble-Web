@@ -56,6 +56,7 @@ export interface Envelope {
   username?: string;
   password?: string;
   serverAddr?: string; // connect 时可选：覆盖代理默认上游服务器
+  inviteToken?: string; // connect 时可选：一次性邀请 token（服务器/密码以服务端存储为准）
   session?: number;
   channelId?: number;
   message?: string;

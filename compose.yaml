@@ -23,6 +23,8 @@ services:
       RTC_UDP_PORT: "${RTC_UDP_PORT:-50000}"
       RTC_PUBLIC_IP: ${RTC_PUBLIC_IP:-}
       ALLOW_SERVER_OVERRIDE: ${ALLOW_SERVER_OVERRIDE:-true}
+      INVITE_SECRET: ${INVITE_SECRET:-}
+      INVITE_TTL: ${INVITE_TTL:-30m}
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
       interval: 30s

@@ -79,6 +79,7 @@ interface AppState {
   error: string;
   server: ServerInfo | null;
   self: SelfInfo | null;
+  inviteToken: string | null; // 本次会话使用的一次性邀请 token（退出登录后作废并清除）
 
   channels: Record<number, ChannelInfo>;
   users: Record<number, UserInfo>;
@@ -107,7 +108,7 @@ interface AppState {
   vadActive: boolean; // VAD 当前是否开门（内部状态）
 
   // actions
-  connect: (username: string, password: string, serverAddr?: string) => void;
+  connect: (username: string, password: string, serverAddr?: string, inviteToken?: string) => void;
   disconnect: () => void;
   leaveVoice: () => void; // 离开当前语音频道，回到 root 大厅（不退出登录）
   handleMessage: (env: Envelope) => void;
@@ -213,6 +214,7 @@ export const useAppStore = create<AppState>((set, get) => {
     error: "",
     server: null,
     self: null,
+    inviteToken: null,
     channels: {},
     users: {},
     messages: {},
@@ -238,25 +240,29 @@ export const useAppStore = create<AppState>((set, get) => {
     outputVolume: persisted.outputVolume ?? 1,
     vadActive: false,
 
-    connect: (username, password, serverAddr) => {
-      set({ connState: "connecting", error: "" });
+    connect: (username, password, serverAddr, inviteToken) => {
+      set({ connState: "connecting", error: "", inviteToken: inviteToken ?? null });
       helloReceived = false;
-      saveIdentity({ username, serverAddr });
+      saveIdentity(inviteToken ? { username } : { username, serverAddr });
       // WS 打开后立即发送登录请求（onopen 回调，不靠定时器猜测时序）
+      // 邀请模式下不带密码与服务器地址，由代理按 token 存储的值登录
       client.onOpen = () =>
         client.send({
           type: "connect",
           username,
-          password,
-          ...(serverAddr ? { serverAddr } : {}),
+          ...(inviteToken
+            ? { inviteToken }
+            : { password, ...(serverAddr ? { serverAddr } : {}) }),
         });
       client.connect();
     },
 
     disconnect: () => {
       client.dispose();
+      const wasInvite = get().inviteToken != null;
       set({
         connState: "idle",
+        inviteToken: null,
         self: null,
         channels: {},
         users: {},
@@ -276,6 +282,10 @@ export const useAppStore = create<AppState>((set, get) => {
         maxImageMessageLength: 131072,
       });
       applyMicGate(); // 停止 VAD 轮询并复位门控
+      if (wasInvite) {
+        // 一次性邀请退出登录后已作废，回到普通连接页
+        window.history.replaceState(null, "", "/");
+      }
     },
 
     // 挂断语音：移回 root 频道（大厅），保持登录与麦克风状态不变
