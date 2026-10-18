@@ -46,8 +46,13 @@ function useAudioDevices(open: boolean) {
       try {
         const devs = await navigator.mediaDevices.enumerateDevices();
         if (cancelled) return;
-        setInputs(devs.filter((d) => d.kind === "audioinput"));
-        setOutputs(devs.filter((d) => d.kind === "audiooutput"));
+        // 排除 "default"/"communications" 伪设备：它们是「系统默认」的别名，
+        // 与列表中手动的「系统默认」项 value 相同，会导致选中后显示拼接文本
+        const real = devs.filter(
+          (d) => d.deviceId !== "default" && d.deviceId !== "communications",
+        );
+        setInputs(real.filter((d) => d.kind === "audioinput"));
+        setOutputs(real.filter((d) => d.kind === "audiooutput"));
       } catch {
         /* 枚举失败保持空列表 */
       }
