@@ -39,7 +39,7 @@ function BarButton({
     <button
       onClick={onClick}
       disabled={disabled}
-      className={`w-8 h-8 rounded-md flex items-center justify-center transition-colors ${
+      className={`w-7 h-7 rounded-md flex items-center justify-center transition-colors shrink-0 ${
         disabled
           ? "text-[#4e5058] cursor-not-allowed"
           : danger
@@ -151,7 +151,8 @@ export function UserBar() {
 
   return (
     <TooltipProvider delayDuration={200}>
-      <div className="h-[60px] w-60 bg-[#232428] px-3 flex items-center gap-2 shrink-0">
+      {/* 固定 240px：头像 36 + 5 按钮 28 + gap-1 + px-3，用户名 truncate 自适应剩余宽度 */}
+      <div className="h-[60px] w-60 bg-[#232428] px-3 flex items-center gap-1 shrink-0">
         <UserAvatar name={self.name} size={36} talking={selfTalking} />
         <div className="min-w-0 flex-1">
           <div className="text-sm font-semibold text-white truncate">{self.name}</div>

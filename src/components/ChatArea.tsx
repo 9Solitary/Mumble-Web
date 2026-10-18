@@ -60,10 +60,10 @@ function MessageRow({ msg }: { msg: TextMessageInfo }) {
       )}
       <div className="min-w-0">
         <div className="flex items-baseline gap-2">
-          <span className={`text-sm font-medium ${isServer ? "text-[#5865f2]" : "text-white"}`}>
+          <span className={`text-sm font-medium truncate ${isServer ? "text-[#5865f2]" : "text-white"}`}>
             {isServer ? "服务器" : msg.senderName || "未知用户"}
           </span>
-          <span className="text-[11px] text-[#6d6f78]">{formatTime(msg.time)}</span>
+          <span className="text-[11px] text-[#6d6f78] shrink-0">{formatTime(msg.time)}</span>
         </div>
         <div className="text-sm text-[#dbdee1] break-words whitespace-pre-wrap leading-relaxed">
           {renderMessage(msg.message)}
@@ -134,15 +134,15 @@ export function ChatArea() {
   return (
     <div className="flex-1 flex flex-col bg-[#313338] min-w-0 min-h-0">
       {/* 频道标题栏 */}
-      <div className="h-12 px-4 flex items-center gap-2 border-b border-[#232428] shadow-sm shrink-0">
-        <Volume2 className="w-5 h-5 text-[#949ba4]" />
-        <span className="font-bold text-white text-sm">
+      <div className="h-12 px-4 flex items-center gap-2 border-b border-[#232428] shadow-sm shrink-0 min-w-0">
+        <Volume2 className="w-5 h-5 text-[#949ba4] shrink-0" />
+        <span className="font-bold text-white text-sm truncate">
           {channel?.name ?? "…"}
         </span>
         {channel?.description && (
           <>
-            <div className="w-px h-5 bg-[#3f4147] mx-1" />
-            <span className="text-xs text-[#949ba4] truncate">{channel.description}</span>
+            <div className="w-px h-5 bg-[#3f4147] mx-1 shrink-0" />
+            <span className="text-xs text-[#949ba4] truncate min-w-0">{channel.description}</span>
           </>
         )}
       </div>

@@ -70,7 +70,7 @@ export function InvitePage() {
   if (check === "invalid") {
     return (
       <div className="min-h-screen w-full flex items-center justify-center bg-[#1e1f22]">
-        <Card className="w-[400px] bg-[#2b2d31] border-[#3f4147] text-[#dbdee1] shadow-2xl">
+        <Card className="w-[min(400px,calc(100vw-2rem))] bg-[#2b2d31] border-[#3f4147] text-[#dbdee1] shadow-2xl">
           <CardHeader className="items-center text-center">
             <div className="w-14 h-14 rounded-2xl bg-[#fa777c]/20 flex items-center justify-center mb-2">
               <Headphones className="w-8 h-8 text-[#fa777c]" />

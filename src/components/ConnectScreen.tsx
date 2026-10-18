@@ -75,7 +75,7 @@ export function ConnectScreen({ inviteToken }: { inviteToken?: string }) {
         <div className="absolute -bottom-40 -right-40 w-96 h-96 rounded-full bg-[#23a55a]/15 blur-[120px]" />
       </div>
 
-      <Card className="w-[400px] bg-[#2b2d31] border-[#3f4147] text-[#dbdee1] relative z-10 shadow-2xl">
+      <Card className="w-[min(400px,calc(100vw-2rem))] bg-[#2b2d31] border-[#3f4147] text-[#dbdee1] relative z-10 shadow-2xl">
         <CardHeader className="items-center text-center">
           <div className="w-14 h-14 rounded-2xl bg-[#5865f2] flex items-center justify-center mb-2">
             <Headphones className="w-8 h-8 text-white" />
