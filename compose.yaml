@@ -61,15 +61,13 @@ services:
     # 页面是纯静态文件，nginx 用普通 bridge 即可（UDP 语音不经过本容器）
     ports:
       - "${PORT:-8080}:80"
-    # 让容器能访问宿主机上的 proxy（host 网络）；Docker Desktop 已内置该名字，此行无害
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     environment:
       # 留空：浏览器经本容器 nginx 同源访问代理（单主机默认）
       # 非空：浏览器跨源直连该地址的代理（分离部署；web 为 HTTPS 时这里必须 https）
       PROXY_ORIGIN: ${PROXY_ORIGIN:-}
-      # 同源回退时 nginx 转发目标（仅容器内可达即可，无需对外）
-      PROXY_UPSTREAM: ${PROXY_UPSTREAM:-host.docker.internal:${PROXY_PORT:-8081}}
+      # 同源回退时 nginx 转发目标（仅容器内可达即可，无需对外）。
+      # 默认为下方固定内网的网关地址（即宿主机），proxy 以 host 网络监听在其上
+      PROXY_UPSTREAM: ${PROXY_UPSTREAM:-172.31.250.1:${PROXY_PORT:-8081}}
     depends_on:
       - proxy
     logging:
@@ -82,3 +80,12 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+
+# 固定内网网段：proxy 为 host 网络，web 容器需经网关地址（172.31.250.1，即宿主机）
+# 回源到 proxy。docker0 的 172.17.0.1 从自定义 bridge 网络不可路由，故在此固定子网。
+# 选用 172.31.250.0/24 避开 docker 默认的 172.17~172.2x 段；与其他项目冲突时可整体改段。
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.31.250.0/24
