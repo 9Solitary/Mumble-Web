@@ -58,16 +58,18 @@ services:
     image: mumble-web:latest
     container_name: mumble-web
     restart: unless-stopped
-    # 页面是纯静态文件，nginx 用普通 bridge 即可（UDP 语音不经过本容器）
-    ports:
-      - "${PORT:-8080}:80"
+    # 页面是纯静态文件，但 nginx 需要回源到 host 网络的 proxy；
+    # 用 host 网络避免 docker 自定义网桥被宿主机防火墙（如 firewalld）拦截的坑。
+    # 对外端口由 WEB_PORT（即 .env 的 PORT）决定，无需 ports 映射。
+    network_mode: host
     environment:
+      # web 对外监听端口（浏览器访问入口）
+      WEB_PORT: ${PORT:-8080}
       # 留空：浏览器经本容器 nginx 同源访问代理（单主机默认）
       # 非空：浏览器跨源直连该地址的代理（分离部署；web 为 HTTPS 时这里必须 https）
       PROXY_ORIGIN: ${PROXY_ORIGIN:-}
-      # 同源回退时 nginx 转发目标（仅容器内可达即可，无需对外）。
-      # 默认为下方固定内网的网关地址（即宿主机），proxy 以 host 网络监听在其上
-      PROXY_UPSTREAM: ${PROXY_UPSTREAM:-172.31.250.1:${PROXY_PORT:-8081}}
+      # 同源回退时 nginx 转发目标；同机部署走回环即可
+      PROXY_UPSTREAM: ${PROXY_UPSTREAM:-127.0.0.1:${PROXY_PORT:-8081}}
     depends_on:
       - proxy
     logging:
@@ -76,16 +78,7 @@ services:
         max-size: "10m"
         max-file: "5"
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/healthz"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:${PORT:-8080}/healthz"]
       interval: 30s
       timeout: 5s
       retries: 3
-
-# 固定内网网段：proxy 为 host 网络，web 容器需经网关地址（172.31.250.1，即宿主机）
-# 回源到 proxy。docker0 的 172.17.0.1 从自定义 bridge 网络不可路由，故在此固定子网。
-# 选用 172.31.250.0/24 避开 docker 默认的 172.17~172.2x 段；与其他项目冲突时可整体改段。
-networks:
-  default:
-    ipam:
-      config:
-        - subnet: 172.31.250.0/24
