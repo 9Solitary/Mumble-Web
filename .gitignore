@@ -30,6 +30,7 @@ dist-ssr
 
 # 本地调试产物
 server/proxy.exe
+server/proxy-linux
 
 # 诊断上报落盘（本地运行 DIAG_DIR 默认当前目录）
 diag.jsonl
