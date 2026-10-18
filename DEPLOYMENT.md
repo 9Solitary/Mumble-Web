@@ -2,6 +2,14 @@
 
 本手册面向在任何普通开发机/服务器上独立部署本项目，不依赖原始开发环境。
 
+部署形态为两个容器：
+
+- **web**：纯静态前端（nginx），只负责下发页面；可单独迁移到任意主机/CDN
+- **proxy**：Go 代理，承载 WebSocket 信令、HTTP API 与 WebRTC 语音（UDP）
+
+浏览器访问 web 拿页面后，信令（WS/API）与语音（UDP）都直连 proxy；
+语音链路不经过 web，因此 web 的位置只影响页面加载速度。
+
 ---
 
 ## 1. 环境要求
@@ -15,13 +23,14 @@
 
 网络要求：
 
-- 容器使用 **host 网络模式**：需要能访问上游 Mumble 服务器（地址在 `.env` 的 `MUMBLE_SERVER` 配置，默认端口 64738）
-- 浏览器需要能访问**宿主机**的 **HTTP 端口（默认 8080）** 和 **UDP 50000（WebRTC 语音）**
+- proxy 容器使用 **host 网络模式**：需要能访问上游 Mumble 服务器（地址在 `.env` 的 `MUMBLE_SERVER` 配置，默认端口 64738）
+- 浏览器需要能访问：**web 的 HTTP 端口（默认 8080）** 和 **proxy 主机的 UDP 50000（WebRTC 语音）**
+- 分离部署（web 与 proxy 不同主机）时，浏览器还需直连 **proxy 的 HTTP 端口（默认 8081）**
 - 公网正式使用建议在前面加一层 HTTPS 反向代理（浏览器要求安全上下文才授予麦克风权限）
 
-> 为什么用 host 网络：WebRTC 语音依赖 UDP，docker 的端口映射（docker-proxy/NAT）
+> 为什么 proxy 用 host 网络：WebRTC 语音依赖 UDP，docker 的端口映射（docker-proxy/NAT）
 > 在部分平台（如 WSL2）不转发 UDP，会导致浏览器↔代理的 ICE 连通性检查失败、
-> 语音双向不通。host 模式下端口由 `PORT` / `RTC_UDP_PORT` 环境变量直接决定。
+> 语音双向不通。host 模式下端口由 `PROXY_PORT` / `RTC_UDP_PORT` 环境变量直接决定。
 
 ---
 
@@ -39,11 +48,12 @@ cp .env.example .env
 docker compose up -d
 
 # 4. 验证
-docker compose ps          # 状态应为 running (healthy)
-docker compose logs -f     # 观察启动日志，Ctrl+C 退出
+docker compose ps            # web / proxy 均应为 running (healthy)
+docker compose logs -f proxy # 观察代理启动日志，Ctrl+C 退出
 ```
 
-> Dockerfile 默认使用国内加速源构建（`GOPROXY=https://goproxy.cn,direct`、`NPM_REGISTRY_MIRROR=https://registry.npmmirror.com`）。
+> Dockerfile（proxy）默认使用国内加速源构建（`GOPROXY=https://goproxy.cn,direct`）、
+> Dockerfile.web（web）默认使用 `NPM_REGISTRY_MIRROR=https://registry.npmmirror.com`。
 > 海外网络构建可覆盖：`docker compose build --build-arg GOPROXY=https://proxy.golang.org,direct --build-arg NPM_REGISTRY_MIRROR=`。
 
 启动日志为 JSON 格式（每行一条），应看到：
@@ -105,16 +115,20 @@ docker compose up -d --build
 |---|---|---|
 | `MUMBLE_SERVER` | `localhost:64738` | 上游服务器；无端口自动 SRV 解析 |
 | `MUMBLE_TLS` | `verify` | `verify` / `pin:<sha256>` / `insecure` |
-| `PORT` | `8080` | 对外 HTTP 端口 |
+| `PORT` | `8080` | web 对外 HTTP 端口（页面入口） |
+| `PROXY_PORT` | `8081` | 代理 HTTP 端口；单主机部署时仅供 web 回源，分离部署时浏览器直连 |
+| `PROXY_ORIGIN` | 空 | 浏览器直连代理的完整地址；空 = 同源（web 容器回源本机代理） |
 | `RTC_UDP_PORT` | `50000` | WebRTC UDP 端口 |
 | `RTC_PUBLIC_IP` | 空 | 代理在 NAT 后时填公网 IP |
 | `ALLOW_SERVER_OVERRIDE` | `true` | 允许网页端连接页自选上游服务器（`false` 锁定为 `MUMBLE_SERVER`） |
+| `FRONTEND_URL` | 空 | 生成邀请链接用的前端地址；空 = 按请求来源拼接 |
 
 ---
 
 ## 6. HTTPS 与公网部署（建议）
 
-浏览器只在安全上下文（HTTPS 或 localhost）下允许麦克风。公网部署示例（Caddy）：
+浏览器只在安全上下文（HTTPS 或 localhost）下允许麦克风。公网部署示例（Caddy，
+反代到 web 容器）：
 
 ```caddyfile
 chat.example.com {
@@ -122,15 +136,20 @@ chat.example.com {
 }
 ```
 
-Caddy 会自动处理 WebSocket 升级与证书。UDP 50000 不经过反代，直接对公网放行。
+Caddy 会自动处理 WebSocket 升级与证书。UDP 50000 不经过任何反代，直接对公网放行。
+
+若页面走了 HTTPS，而 `PROXY_ORIGIN` 配置了浏览器直连代理，则该地址必须也是
+HTTPS（WSS），否则被浏览器混合内容策略拦截——即代理侧也需要域名+证书，
+或干脆留空 `PROXY_ORIGIN` 让流量全部经 web 同源回源。
 
 ### 反向代理的 WebSocket 长连接配置
 
 代理服务端每 25s 向浏览器发一次 WS Ping 控制帧（浏览器自动回 Pong，前端无需改代码），
-因此反代/网关的空闲超时**不低于 60s 即可**，但建议放宽到 1 小时以减少干扰：
+因此反代/网关的空闲超时**不低于 60s 即可**，但建议放宽到 1 小时以减少干扰。
+web 容器内的 nginx 已按此配置；仅需关注 web 之外再叠加的反代层：
 
 ```nginx
-# nginx 示例
+# 外层 nginx 示例（反代到 web 容器）
 location / {
     proxy_pass http://127.0.0.1:8080;
     proxy_http_version 1.1;
@@ -146,6 +165,19 @@ location / {
 - **Cloudflare**：免费/Pro 档 WS 空闲超时约 100s，不可调；服务端 25s 心跳可保活，无需额外配置。
   若仍见 100s 左右规律断线，检查是否经过了其他不感知 WS 控制帧的中间层。
 - 任何把 `proxy_read_timeout` 调到 25s 以下的配置都会掐死空闲连接——心跳间隔是 25s。
+
+### 分离部署 / 迁移
+
+web 与 proxy 可以放在不同主机（例如页面放境内已备案主机或 CDN，代理放境外免备案节点）：
+
+1. proxy 主机：`docker compose up -d proxy`，防火墙放行 `PROXY_PORT`（TCP）与
+   `RTC_UDP_PORT`（UDP）
+2. web 主机：`docker compose up -d web`，`.env` 中设置
+   `PROXY_ORIGIN=http(s)://<proxy 地址>:<PROXY_PORT>`
+3. 浏览器访问 web 后，信令与语音全部跨源直连 proxy；web 可随时替换/迁移，
+   只改 `PROXY_ORIGIN` 即可，无需重新构建镜像
+4. bot 后端若直连 proxy 创建邀请链接，在 proxy 侧配置 `FRONTEND_URL` 为页面地址，
+   保证生成的邀请链接指向前端而非代理
 
 ---
 

@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -62,6 +63,7 @@ func main() {
 		inviteSecret  = flag.String("invite-secret", envOr("INVITE_SECRET", ""), "邀请链接 API 的 Bearer 密钥（留空则关闭邀请功能）")
 		inviteTTL     = flag.Duration("invite-ttl", envOrDuration("INVITE_TTL", 30*time.Minute), "邀请链接有效期")
 		diagDir       = flag.String("diag-dir", envOr("DIAG_DIR", "."), "诊断上报落盘目录（diag.jsonl）")
+		frontendURL   = flag.String("frontend-url", envOr("FRONTEND_URL", ""), "前端页面的对外地址（如 https://chat.example.com），用于生成邀请链接；留空按请求来源拼接")
 	)
 	flag.Parse()
 
@@ -143,11 +145,17 @@ func main() {
 			http.Error(w, `{"error":"生成邀请失败"}`, http.StatusInternalServerError)
 			return
 		}
-		scheme := "http"
-		if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
-			scheme = "https"
+		var url string
+		if *frontendURL != "" {
+			// 前后端分离部署：邀请链接指向前端页面地址而非本代理
+			url = strings.TrimRight(*frontendURL, "/") + "/invite/" + inv.Token
+		} else {
+			scheme := "http"
+			if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+				scheme = "https"
+			}
+			url = fmt.Sprintf("%s://%s/invite/%s", scheme, r.Host, inv.Token)
 		}
-		url := fmt.Sprintf("%s://%s/invite/%s", scheme, r.Host, inv.Token)
 		slog.Info("invite_created", "event", "invite_created",
 			"token", inv.Token[:8], "server", req.ServerAddr, "expires_at", inv.ExpiresAt.Format(time.RFC3339))
 		fmt.Fprintf(w, `{"token":%q,"url":%q,"expiresAt":%d}`,
@@ -179,7 +187,7 @@ func main() {
 	}
 
 	slog.Info("http_listen", "event", "http_listen", "listen", *listen)
-	if err := http.ListenAndServe(*listen, mux); err != nil {
+	if err := http.ListenAndServe(*listen, corsAPI(mux)); err != nil {
 		slog.Error("http_serve_failed", "event", "http_serve_failed", "error", err.Error())
 		os.Exit(1)
 	}
@@ -193,6 +201,24 @@ func newSID() string {
 		return fmt.Sprintf("%016x", time.Now().UnixNano())
 	}
 	return hex.EncodeToString(b[:])
+}
+
+// corsAPI 允许浏览器跨源调用 /api/*（前后端分离部署时页面与代理不同源）。
+// 浏览器侧请求不携带凭据、邀请创建有 Bearer 鉴权，Allow-Origin 用 * 即可；
+// WebSocket 不受同源策略约束，无需处理。
+func corsAPI(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func spaHandler(dir string) http.Handler {

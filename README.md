@@ -47,14 +47,16 @@ docker compose down               # 停止
 docker compose up -d --build      # 更新代码后重建
 ```
 
-纯 Docker（不用 Compose）：
+纯 Docker（不用 Compose，web 与 proxy 两个镜像）：
 
 ```bash
-docker build -t mumble-web .
-docker run -p 8080:8080 -p 50000:50000/udp mumble-web
+docker build -t mumble-web-proxy .
+docker build -t mumble-web -f Dockerfile.web .
+docker run -p 8081:8081 -p 50000:50000/udp mumble-web-proxy
+docker run -p 8080:80 -e PROXY_ORIGIN=http://<proxy地址>:8081 mumble-web
 ```
 
-> 完整的部署与维护手册见 [DEPLOYMENT.md](DEPLOYMENT.md)。
+> 完整的部署与维护手册（含 web/proxy 分离部署与迁移说明）见 [DEPLOYMENT.md](DEPLOYMENT.md)。
 
 ### 本地开发
 
@@ -79,6 +81,10 @@ npm run dev
 | `ALLOW_SERVER_OVERRIDE` | `true` | 允许网页端连接页自选上游服务器（填 `false` 则锁定为 `MUMBLE_SERVER`） |
 | `INVITE_SECRET` | 空（关闭） | 邀请创建 API 的 Bearer 密钥；配置后启用一次性邀请链接功能 |
 | `INVITE_TTL` | `30m` | 邀请链接有效期（Go duration 格式） |
+| `FRONTEND_URL` | 空 | 生成邀请链接用的前端地址；空 = 按请求来源拼接（分离部署且 bot 直连代理时设置） |
+
+以上为代理进程配置。web 容器另有：`PROXY_ORIGIN`（浏览器直连代理的地址，空 = 同源回源）、
+`PROXY_UPSTREAM`（容器内回源目标，默认 `host.docker.internal:8081`）。
 
 连接页会显示并预填当前配置的服务器地址/端口，用户可直接修改后连接（TLS 策略沿用代理配置）。
 

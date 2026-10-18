@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { exportJSON, getSession } from "@/lib/diagnostics";
 import { getLatestStats, type RtcStatsSnapshot } from "@/lib/rtcStats";
+import { apiUrl } from "@/lib/backend";
 
 const DEFAULT_DEVICE = "default"; // Radix Select 不允许空字符串 value
 
@@ -170,7 +171,7 @@ function AboutSection() {
   useEffect(() => {
     if (version) return;
     let cancelled = false;
-    fetch("/api/version")
+    fetch(apiUrl("/api/version"))
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         if (!cancelled && d?.version) setVersion(String(d.version));

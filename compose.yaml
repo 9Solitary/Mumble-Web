@@ -1,28 +1,33 @@
-# Mumble Web 一键部署
+# Mumble Web 一键部署（前后端分离：web = 静态页面，proxy = Go 代理）
 # 用法：
 #   cp .env.example .env   # 按需修改
 #   docker compose up -d
 #
 # 无数据库；仅挂载 ./diag 存放前端诊断上报（diag.jsonl）。
+#
+# 默认单主机部署：浏览器 -> web(8080) -> nginx 同源回退 -> proxy(8081)。
+# 分离迁移时：把 web / proxy 放到不同主机，在 web 侧设置 PROXY_ORIGIN 指向
+# proxy 的对外地址（如 http://proxy.example.com:8081），浏览器跨源直连代理；
+# 无论哪种方式，语音 UDP（默认 50000）始终由浏览器直连 proxy 主机。
 
 services:
-  mumble-web:
+  proxy:
     build:
       context: .
+      dockerfile: Dockerfile
       args:
         # 构建版本标识（git sha），注入到二进制的 main.version；
         # 用法：VERSION=$(git rev-parse --short HEAD) docker compose build
         VERSION: ${VERSION:-dev}
-    image: mumble-web:latest
-    container_name: mumble-web
+    image: mumble-web-proxy:latest
+    container_name: mumble-web-proxy
     restart: unless-stopped
     # host 网络：WebRTC 语音走 UDP，docker 端口映射（docker-proxy/NAT）在部分平台
     # （如 WSL2）不转发 UDP，会导致浏览器↔代理的 ICE 连通性检查失败、语音双向不通。
     # host 模式下端口由 LISTEN / RTC_UDP_PORT 环境变量直接决定，无需 ports 映射。
     network_mode: host
     environment:
-      LISTEN: ":${PORT:-8080}"
-      STATIC_DIR: /app/dist
+      LISTEN: ":${PROXY_PORT:-8081}"
       MUMBLE_SERVER: ${MUMBLE_SERVER:-localhost:64738}
       MUMBLE_TLS: ${MUMBLE_TLS:-verify}
       RTC_UDP_PORT: "${RTC_UDP_PORT:-50000}"
@@ -30,6 +35,7 @@ services:
       ALLOW_SERVER_OVERRIDE: ${ALLOW_SERVER_OVERRIDE:-true}
       INVITE_SECRET: ${INVITE_SECRET:-}
       INVITE_TTL: ${INVITE_TTL:-30m}
+      FRONTEND_URL: ${FRONTEND_URL:-}
       DIAG_DIR: /app/diag
     volumes:
       # 诊断上报落盘（diag.jsonl），挂载到宿主机便于采集；建议保留 7 天
@@ -40,7 +46,39 @@ services:
         max-size: "10m"
         max-file: "5"
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:${PROXY_PORT:-8081}/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    image: mumble-web:latest
+    container_name: mumble-web
+    restart: unless-stopped
+    # 页面是纯静态文件，nginx 用普通 bridge 即可（UDP 语音不经过本容器）
+    ports:
+      - "${PORT:-8080}:80"
+    # 让容器能访问宿主机上的 proxy（host 网络）；Docker Desktop 已内置该名字，此行无害
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      # 留空：浏览器经本容器 nginx 同源访问代理（单主机默认）
+      # 非空：浏览器跨源直连该地址的代理（分离部署；web 为 HTTPS 时这里必须 https）
+      PROXY_ORIGIN: ${PROXY_ORIGIN:-}
+      # 同源回退时 nginx 转发目标（仅容器内可达即可，无需对外）
+      PROXY_UPSTREAM: ${PROXY_UPSTREAM:-host.docker.internal:${PROXY_PORT:-8081}}
+    depends_on:
+      - proxy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/healthz"]
       interval: 30s
       timeout: 5s
       retries: 3

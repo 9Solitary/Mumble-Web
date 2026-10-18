@@ -2,6 +2,7 @@ import type { Envelope } from "./protocol";
 import { logEvent, setSession } from "./diagnostics";
 import { startRtcStats, stopRtcStats } from "./rtcStats";
 import { applyJitterBufferTarget } from "./jitterBuffer";
+import { wsUrl } from "./backend";
 
 // MumbleClient 封装浏览器侧的全部网络逻辑：
 //  - WebSocket：控制信令 + WebRTC 信令
@@ -34,8 +35,7 @@ export class MumbleClient {
   onMicError: (err: string) => void = () => {};
 
   connect() {
-    const proto = location.protocol === "https:" ? "wss" : "ws";
-    const ws = new WebSocket(`${proto}://${location.host}/ws`);
+    const ws = new WebSocket(wsUrl("/ws"));
     ws.onopen = () => this.onOpen();
     ws.onmessage = (ev) => {
       try {

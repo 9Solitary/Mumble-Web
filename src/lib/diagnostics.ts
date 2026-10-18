@@ -8,6 +8,8 @@
 // 错误类事件全量上报，其余按 5% 采样；批量 POST /api/diag（最多每 10s 一批），
 // pagehide 时用 navigator.sendBeacon 兜底发送剩余事件。
 
+import { apiUrl } from "./backend";
+
 export interface DiagEvent {
   ts: number; // unix 秒
   kind: string;
@@ -101,7 +103,7 @@ async function flush() {
   const batch = pending;
   pending = [];
   try {
-    await fetch("/api/diag", {
+    await fetch(apiUrl("/api/diag"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ sid, version, events: batch }),
@@ -118,7 +120,7 @@ function flushBeacon() {
   pending = [];
   try {
     navigator.sendBeacon(
-      "/api/diag",
+      apiUrl("/api/diag"),
       new Blob([body], { type: "application/json" }),
     );
   } catch {

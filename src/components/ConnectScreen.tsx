@@ -11,6 +11,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Headphones, Loader2 } from "lucide-react";
+import { apiUrl } from "@/lib/backend";
 
 // "host:port" 拆分；无端口或非数字端口时整体作为 host
 function splitHostPort(addr: string): { host: string; port: string } {
@@ -36,7 +37,7 @@ export function ConnectScreen({ inviteToken }: { inviteToken?: string }) {
   useEffect(() => {
     if (inviteMode || identity.serverAddr) return;
     let cancelled = false;
-    fetch("/api/server")
+    fetch(apiUrl("/api/server"))
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         if (cancelled || !d) return;

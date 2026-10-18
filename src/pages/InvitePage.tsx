@@ -11,6 +11,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Headphones, Loader2 } from "lucide-react";
+import { apiUrl } from "@/lib/backend";
 
 // 一次性邀请链接入口：校验 token -> 仅需用户名的连接表单 -> 主界面。
 // token 的服务器/密码保存在代理服务端，本页面拿不到也不需要。
@@ -23,7 +24,7 @@ export function InvitePage() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`/api/invites/${encodeURIComponent(token)}`)
+    fetch(apiUrl(`/api/invites/${encodeURIComponent(token)}`))
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         if (cancelled) return;
