@@ -355,6 +355,11 @@ export function SettingsDialog({
                 </Label>
               </div>
             </RadioGroup>
+            <p className="text-[11px] text-[#949ba4]">
+              {pttMode === "open"
+                ? "当前为自由发言：电平超过阈值时自动发送"
+                : "当前为按键说话：按住空格键发言"}
+            </p>
             {pttMode === "open" && (
               <div className="pt-1">
                 <div className="flex justify-between text-xs text-[#949ba4]">

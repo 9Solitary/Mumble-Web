@@ -387,7 +387,7 @@ export const useAppStore = create<AppState>((set, get) => {
     maxImageMessageLength: 131072,
     micReady: false,
     micError: "",
-    pttMode: "ptt",
+    pttMode: "open", // 默认自由发言（可在设置或用户栏切换为按键说话）
     transmitting: false,
     selfMuted: false,
     selfDeafened: false,
