@@ -53,6 +53,8 @@ export interface ConfigInfo {
 
 export interface Envelope {
   type: string;
+  sid?: string; // hello 信封：本次 WS 会话 id（诊断上报关联用）
+  version?: string; // hello 信封：代理版本（git sha 或 dev）
   username?: string;
   password?: string;
   serverAddr?: string; // connect 时可选：覆盖代理默认上游服务器

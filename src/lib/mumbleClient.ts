@@ -1,4 +1,6 @@
 import type { Envelope } from "./protocol";
+import { logEvent, setSession } from "./diagnostics";
+import { startRtcStats, stopRtcStats } from "./rtcStats";
 
 // MumbleClient 封装浏览器侧的全部网络逻辑：
 //  - WebSocket：控制信令 + WebRTC 信令
@@ -35,12 +37,25 @@ export class MumbleClient {
     ws.onopen = () => this.onOpen();
     ws.onmessage = (ev) => {
       try {
-        this.onMessage(JSON.parse(ev.data));
+        const env = JSON.parse(ev.data) as Envelope;
+        // hello 信封携带会话 id 与代理版本，登记到诊断模块（上报时关联会话）
+        if (env.type === "hello") {
+          setSession(env.sid ?? "", env.version ?? "");
+        }
+        this.onMessage(env);
       } catch {
         /* 忽略坏包 */
       }
     };
-    ws.onclose = () => this.onClose();
+    ws.onclose = (ev) => {
+      // WS 断开诊断：只记状态码与截断后的 reason，不含敏感内容
+      logEvent("ws-close", {
+        code: ev.code,
+        reason: ev.reason ?? "",
+        wasClean: ev.wasClean,
+      });
+      this.onClose();
+    };
     this.ws = ws;
   }
 
@@ -111,6 +126,10 @@ export class MumbleClient {
         this.micConstraints(deviceId),
       );
     } catch (e) {
+      logEvent("gum-error", {
+        name: e instanceof Error ? e.name : "",
+        message: e instanceof Error ? e.message : String(e),
+      });
       this.onMicError(`无法访问麦克风: ${e instanceof Error ? e.message : e}`);
       return;
     }
@@ -120,6 +139,15 @@ export class MumbleClient {
 
     const pc = new RTCPeerConnection({ iceServers: [] });
     this.pc = pc;
+    startRtcStats(pc); // 每 5s 采集 RTT/抖动缓冲/丢包率
+
+    pc.onconnectionstatechange = () => {
+      console.log("[rtc] state:", pc.connectionState);
+      logEvent("rtc-state", { state: pc.connectionState });
+    };
+    pc.oniceconnectionstatechange = () => {
+      logEvent("ice-state", { state: pc.iceConnectionState });
+    };
 
     pc.onicecandidate = (ev) => {
       if (ev.candidate) {
@@ -148,10 +176,6 @@ export class MumbleClient {
       const stream = ev.streams[0] ?? new MediaStream([ev.track]);
       this.onRemoteTrack(session, stream);
       ev.track.onended = () => this.onRemoteTrackEnded(session);
-    };
-
-    pc.onconnectionstatechange = () => {
-      console.log("[rtc] state:", pc.connectionState);
     };
 
     if (this.rtcTrack) pc.addTrack(this.rtcTrack, this.micStream!);
@@ -209,6 +233,10 @@ export class MumbleClient {
         this.micConstraints(deviceId || undefined),
       );
     } catch (e) {
+      logEvent("gum-error", {
+        name: e instanceof Error ? e.name : "",
+        message: e instanceof Error ? e.message : String(e),
+      });
       this.onMicError(
         `切换输入设备失败: ${e instanceof Error ? e.message : e}`,
       );
@@ -231,6 +259,7 @@ export class MumbleClient {
 
   dispose() {
     this.send({ type: "disconnect" });
+    stopRtcStats();
     this.pc?.close();
     this.rtcTrack?.stop();
     this.micStream?.getTracks().forEach((t) => t.stop());

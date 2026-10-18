@@ -18,7 +18,19 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Slider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { Mic, Volume2, Radio, LogOut } from "lucide-react";
+import {
+  Mic,
+  Volume2,
+  Radio,
+  LogOut,
+  Activity,
+  Info,
+  ChevronDown,
+  Copy,
+  Check,
+} from "lucide-react";
+import { exportJSON, getSession } from "@/lib/diagnostics";
+import { getLatestStats, type RtcStatsSnapshot } from "@/lib/rtcStats";
 
 const DEFAULT_DEVICE = "default"; // Radix Select 不允许空字符串 value
 
@@ -50,6 +62,128 @@ function useAudioDevices(open: boolean) {
 
 function deviceLabel(d: MediaDeviceInfo, i: number): string {
   return d.label || `设备 ${i + 1}`;
+}
+
+function fmtMs(v: number | null): string {
+  return v == null ? "-" : `${Math.round(v)} ms`;
+}
+
+// 连接诊断：折叠展示 RTC 指标 / 状态 / 会话信息，支持一键复制诊断 JSON。
+// 面板打开期间每 1s 刷新一次（rtcStats 本身每 5s 采集）。
+function DiagnosticsSection() {
+  const [expanded, setExpanded] = useState(false);
+  const [stats, setStats] = useState<RtcStatsSnapshot>(getLatestStats);
+  const [session, setSession] = useState(getSession);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!expanded) return;
+    const timer = window.setInterval(() => {
+      setStats(getLatestStats());
+      setSession(getSession());
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [expanded]);
+
+  const copyDiag = async () => {
+    try {
+      await navigator.clipboard.writeText(exportJSON());
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* 剪贴板不可用时静默失败 */
+    }
+  };
+
+  const rows: [string, string][] = [
+    ["RTT", fmtMs(stats.rttMs)],
+    ["抖动缓冲延迟", fmtMs(stats.jitterBufferDelayMs)],
+    [
+      "丢包率",
+      stats.lossPct == null ? "-" : `${stats.lossPct.toFixed(1)}%`,
+    ],
+    ["RTC 状态", stats.connectionState],
+    ["ICE 状态", stats.iceConnectionState],
+    ["重连次数", "-"], // 阶段 2 才实现重连
+    ["会话 ID", session.sid || "-"],
+    ["版本", session.version || "-"],
+  ];
+
+  return (
+    <div className="border-t border-[#3f4147] pt-4 space-y-2">
+      <button
+        type="button"
+        className="flex w-full items-center gap-2 text-xs font-bold uppercase text-[#b5bac1] hover:text-white"
+        onClick={() => setExpanded((v) => !v)}
+      >
+        <Activity className="w-4 h-4" /> 连接诊断
+        <ChevronDown
+          className={`w-4 h-4 ml-auto transition-transform ${expanded ? "rotate-180" : ""}`}
+        />
+      </button>
+      {expanded && (
+        <div className="space-y-2">
+          <div className="rounded-md bg-[#1e1f22] px-3 py-2 text-xs">
+            {rows.map(([k, v]) => (
+              <div key={k} className="flex justify-between py-0.5">
+                <span className="text-[#949ba4]">{k}</span>
+                <span className="text-[#dbdee1] font-mono">{v}</span>
+              </div>
+            ))}
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full bg-[#5865f2]/10 text-[#b5bac1] hover:bg-[#5865f2]/20 hover:text-white"
+            onClick={() => void copyDiag()}
+          >
+            {copied ? (
+              <>
+                <Check className="w-4 h-4 mr-2" /> 已复制
+              </>
+            ) : (
+              <>
+                <Copy className="w-4 h-4 mr-2" /> 复制诊断信息
+              </>
+            )}
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// 关于：显示代理版本（优先 hello 信封下发的 version，缺失时回退 /api/version）
+function AboutSection() {
+  const [version, setVersion] = useState(() => getSession().version);
+
+  useEffect(() => {
+    if (version) return;
+    let cancelled = false;
+    fetch("/api/version")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!cancelled && d?.version) setVersion(String(d.version));
+      })
+      .catch(() => {
+        /* 接口不可用时显示未知 */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [version]);
+
+  return (
+    <div className="border-t border-[#3f4147] pt-4">
+      <Label className="flex items-center gap-2 text-xs font-bold uppercase text-[#b5bac1]">
+        <Info className="w-4 h-4" /> 关于
+      </Label>
+      <p className="mt-1 text-xs text-[#6d6f78]">
+        Mumble Web · 代理版本{" "}
+        <span className="font-mono">{version || "未知"}</span>
+      </p>
+    </div>
+  );
 }
 
 export function SettingsDialog({
@@ -96,7 +230,8 @@ export function SettingsDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-5">
+        {/* min-w-0：DialogContent 是 grid，grid 子项默认 min-width:auto 会被长设备名撑破弹窗 */}
+        <div className="space-y-5 min-w-0">
           {/* 音频输入 */}
           <div className="space-y-2">
             <Label className="flex items-center gap-2 text-xs font-bold uppercase text-[#b5bac1]">
@@ -108,7 +243,7 @@ export function SettingsDialog({
                 setInputDevice(v === DEFAULT_DEVICE ? "" : v)
               }
             >
-              <SelectTrigger className="bg-[#1e1f22] border-[#1e1f22] text-[#dbdee1]">
+              <SelectTrigger className="w-full bg-[#1e1f22] border-[#1e1f22] text-[#dbdee1]">
                 <SelectValue placeholder="系统默认" />
               </SelectTrigger>
               <SelectContent className="bg-[#111214] border-[#3f4147] text-[#dbdee1]">
@@ -150,7 +285,7 @@ export function SettingsDialog({
                 setOutputDevice(v === DEFAULT_DEVICE ? "" : v)
               }
             >
-              <SelectTrigger className="bg-[#1e1f22] border-[#1e1f22] text-[#dbdee1]">
+              <SelectTrigger className="w-full bg-[#1e1f22] border-[#1e1f22] text-[#dbdee1]">
                 <SelectValue placeholder="系统默认" />
               </SelectTrigger>
               <SelectContent className="bg-[#111214] border-[#3f4147] text-[#dbdee1]">
@@ -212,6 +347,12 @@ export function SettingsDialog({
               </div>
             )}
           </div>
+
+          {/* 连接诊断 */}
+          <DiagnosticsSection />
+
+          {/* 关于 */}
+          <AboutSection />
 
           {/* 退出登录 */}
           <div className="border-t border-[#3f4147] pt-4">
