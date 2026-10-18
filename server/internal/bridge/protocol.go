@@ -54,6 +54,10 @@ type Envelope struct {
 	Deaf       *bool  `json:"deaf,omitempty"`
 	Reason     string `json:"reason,omitempty"`
 
+	// hello 下发：会话标识与构建版本（诊断上报与日志按 sid+version 关联）
+	SID     string `json:"sid,omitempty"`
+	Version string `json:"version,omitempty"`
+
 	// WebRTC 信令
 	SDP       string `json:"sdp,omitempty"`
 	Candidate string `json:"candidate,omitempty"`

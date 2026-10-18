@@ -23,7 +23,10 @@ ENV GOPROXY=${GOPROXY}
 COPY server/go.mod server/go.sum ./
 RUN go mod download
 COPY server/ ./
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /proxy ./cmd/proxy
+# .git 被 .dockerignore 排除，构建上下文内取不到 git sha，
+# 由宿主机构建时传入：docker compose build --build-arg ... 或 VERSION=$(git rev-parse --short HEAD)
+ARG VERSION=dev
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /proxy ./cmd/proxy
 
 # ---------- 运行时 ----------
 FROM alpine:3.20

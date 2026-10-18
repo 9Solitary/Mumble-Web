@@ -31,9 +31,17 @@ dist-ssr
 # 本地调试产物
 server/proxy.exe
 
+# 诊断上报落盘（本地运行 DIAG_DIR 默认当前目录）
+diag.jsonl
+diag/
+
 # 本地运行备份与排查总结（勿提交）
 server/proxy.exe.bak
 问题修复总结.md
 
 # 本地规范与笔记（通用参考，勿提交）
 提交规范.md
+
+# Playwright 产物
+playwright-report/
+test-results/

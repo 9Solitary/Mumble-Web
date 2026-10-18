@@ -46,12 +46,13 @@ docker compose logs -f     # 观察启动日志，Ctrl+C 退出
 > Dockerfile 默认使用国内加速源构建（`GOPROXY=https://goproxy.cn,direct`、`NPM_REGISTRY_MIRROR=https://registry.npmmirror.com`）。
 > 海外网络构建可覆盖：`docker compose build --build-arg GOPROXY=https://proxy.golang.org,direct --build-arg NPM_REGISTRY_MIRROR=`。
 
-启动日志中应看到：
+启动日志为 JSON 格式（每行一条），应看到：
 
-```
-上游 Mumble: <配置值> -> <解析结果 host:port> (TLS: <策略>, SNI: <服务器名>)
-WebRTC ICE UDP: :50000
-HTTP 监听: :8080
+```json
+{"ts":"...","level":"INFO","msg":"proxy_start","event":"proxy_start","version":"<git sha 或 dev>"}
+{"ts":"...","level":"INFO","msg":"upstream_resolved","event":"upstream_resolved","original":"...","address":"host:port","tls":"verify","sni":"..."}
+{"ts":"...","level":"INFO","msg":"rtc_udp_ready","event":"rtc_udp_ready","port":50000}
+{"ts":"...","level":"INFO","msg":"http_listen","event":"http_listen","listen":":8080"}
 ```
 
 浏览器访问 `http://<服务器地址>:8080`，输入用户名和 Mumble 服务器密码即可使用。
@@ -80,12 +81,17 @@ docker compose up -d --build
 
 ## 4. 数据与持久化
 
-**本项目完全无状态：**
+**本项目基本无状态：**
 
-- 没有数据库、没有文件存储、不需要 Docker Volume
-- 每个浏览器会话是一个独立的 Mumble 登录，状态仅存于内存
+- 没有数据库；每个浏览器会话是一个独立的 Mumble 登录，状态仅存于内存
 - 删除容器不会丢失任何数据（聊天记录不落盘，刷新页面即重新同步）
-- 无需备份；需要保留的只有 `.env` 配置文件本身
+- 需要保留的只有 `.env` 配置文件本身
+
+唯一的落盘文件是**诊断上报**：`./diag/diag.jsonl`（前端错误/断线事件，用于排查问题）。
+
+- 每行一个事件，含 `sid`（会话标识）、`version`（构建版本）、`kind`、`data`、`recv_ts`
+- 隐私红线：不含聊天内容、密码、用户名、邀请 token（前端上报前已脱敏）
+- 建议保留 7 天后清理；compose 已配置容器日志轮转（json-file，10MB×5）
 
 ---
 

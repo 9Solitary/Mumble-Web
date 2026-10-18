@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"strings"
 	"sync"
 	"time"
@@ -20,7 +19,8 @@ import (
 type rtcPeer struct {
 	pc *webrtc.PeerConnection
 
-	send func(Envelope) // 发送信令到浏览器
+	send     func(Envelope)              // 发送信令到浏览器
+	logEvent func(event string, args ...any) // 会话级结构化日志（带 sid）
 
 	mu         sync.Mutex
 	tracks     map[uint32]*speakerTrack // session -> 下行 track
@@ -34,7 +34,7 @@ type speakerTrack struct {
 }
 
 // newRTCPeer 创建 PeerConnection。udpMux 为全局共享的 ICE UDP 复用器。
-func newRTCPeer(udpMux ice.UDPMux, publicIP string, send func(Envelope)) (*rtcPeer, error) {
+func newRTCPeer(udpMux ice.UDPMux, publicIP string, send func(Envelope), logEvent func(string, ...any)) (*rtcPeer, error) {
 	me := &webrtc.MediaEngine{}
 	if err := me.RegisterCodec(webrtc.RTPCodecParameters{
 		RTPCodecCapability: webrtc.RTPCodecCapability{
@@ -63,7 +63,7 @@ func newRTCPeer(udpMux ice.UDPMux, publicIP string, send func(Envelope)) (*rtcPe
 		return nil, err
 	}
 
-	p := &rtcPeer{pc: pc, send: send, tracks: make(map[uint32]*speakerTrack)}
+	p := &rtcPeer{pc: pc, send: send, logEvent: logEvent, tracks: make(map[uint32]*speakerTrack)}
 
 	pc.OnICECandidate(func(c *webrtc.ICECandidate) {
 		if c == nil {
@@ -74,7 +74,7 @@ func newRTCPeer(udpMux ice.UDPMux, publicIP string, send func(Envelope)) (*rtcPe
 		if init.SDPMid != nil {
 			mid = *init.SDPMid
 		}
-		log.Printf("rtc: 通告候选给浏览器: %s", init.Candidate)
+		p.logEvent("rtc_candidate", "direction", "to_browser", "candidate", init.Candidate)
 		send(Envelope{Type: DownRtcIce, Candidate: init.Candidate, SDPMid: mid})
 	})
 
@@ -82,20 +82,20 @@ func newRTCPeer(udpMux ice.UDPMux, publicIP string, send func(Envelope)) (*rtcPe
 		// 新增说话人 track 时触发重新协商；由代理统一发起 offer
 		offer, err := pc.CreateOffer(nil)
 		if err != nil {
-			log.Printf("rtc: create offer: %v", err)
+			p.logEvent("rtc_error", "op", "create_offer", "error", err.Error())
 			return
 		}
 		if err := pc.SetLocalDescription(offer); err != nil {
-			log.Printf("rtc: set local: %v", err)
+			p.logEvent("rtc_error", "op", "set_local", "error", err.Error())
 			return
 		}
-		log.Printf("rtc: 已发送重协商 offer")
+		p.logEvent("rtc_renegotiate")
 		// 同初始 answer：携带 ptime=10，否则重协商后浏览器会退回 20ms 帧
 		send(Envelope{Type: DownRtcOffer, SDP: withPtime(offer.SDP, 10)})
 	})
 
 	pc.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
-		log.Printf("rtc: browser mic track started: %s (ssrc=%d, pt=%d)", track.ID(), track.SSRC(), track.PayloadType())
+		p.logEvent("rtc_mic_track", "track", track.ID(), "ssrc", track.SSRC(), "pt", track.PayloadType())
 		var (
 			pkts, lost   int
 			lastSeq      uint16
@@ -108,7 +108,7 @@ func newRTCPeer(udpMux ice.UDPMux, publicIP string, send func(Envelope)) (*rtcPe
 			pkt, _, err := track.ReadRTP()
 			if err != nil {
 				if !errors.Is(err, io.EOF) {
-					log.Printf("rtc: mic read end: %v", err)
+					p.logEvent("rtc_mic_end", "error", err.Error())
 				}
 				return
 			}
@@ -134,8 +134,8 @@ func newRTCPeer(udpMux ice.UDPMux, publicIP string, send func(Envelope)) (*rtcPe
 			lastSeq = pkt.SequenceNumber
 			lastArrival = now
 			if pkts%50 == 0 {
-				log.Printf("mic-rtp: pkts=%d lost=%d gapAvg=%dms bytes[min=%d avg=%d max=%d] pt=%d",
-					pkts, lost, sumGap/int64(pkts-1), minB, sumB/int64(pkts), maxB, pkt.PayloadType)
+				p.logEvent("mic_rtp_stats", "pkts", pkts, "lost", lost, "gap_avg_ms", sumGap/int64(pkts-1),
+					"bytes_min", minB, "bytes_avg", sumB/int64(pkts), "bytes_max", maxB, "pt", pkt.PayloadType)
 			}
 			p.mu.Lock()
 			h := p.micHandler
@@ -147,11 +147,11 @@ func newRTCPeer(udpMux ice.UDPMux, publicIP string, send func(Envelope)) (*rtcPe
 	})
 
 	pc.OnICEConnectionStateChange(func(s webrtc.ICEConnectionState) {
-		log.Printf("rtc: ice state: %s", s)
+		p.logEvent("rtc_state", "kind", "ice", "state", s.String())
 	})
 
 	pc.OnConnectionStateChange(func(s webrtc.PeerConnectionState) {
-		log.Printf("rtc: connection state: %s", s)
+		p.logEvent("rtc_state", "kind", "peer", "state", s.String())
 	})
 
 	return p, nil
@@ -200,16 +200,16 @@ func (p *rtcPeer) HandleAnswer(sdp string) error {
 		Type: webrtc.SDPTypeAnswer, SDP: sdp,
 	})
 	if err != nil {
-		log.Printf("rtc: set remote answer: %v", err)
+		p.logEvent("rtc_error", "op", "set_remote_answer", "error", err.Error())
 	} else {
-		log.Printf("rtc: 浏览器 answer 已应用")
+		p.logEvent("rtc_answer_applied")
 	}
 	return err
 }
 
 // AddCandidate 添加浏览器侧 ICE candidate。
 func (p *rtcPeer) AddCandidate(candidate, mid string) error {
-	log.Printf("rtc: 收到浏览器候选: %s", candidate)
+	p.logEvent("rtc_candidate", "direction", "from_browser", "candidate", candidate)
 	return p.pc.AddICECandidate(webrtc.ICECandidateInit{
 		Candidate: candidate, SDPMid: &mid,
 	})
@@ -243,7 +243,7 @@ func (p *rtcPeer) WriteVoice(session uint32, opus []byte) error {
 		}
 		st = &speakerTrack{track: track, sender: sender}
 		p.tracks[session] = st
-		log.Printf("rtc: new speaker track for session %d", session)
+		p.logEvent("rtc_speaker_track", "mumble_session", session)
 	}
 	p.mu.Unlock()
 	if st == nil {
@@ -264,7 +264,7 @@ func (p *rtcPeer) RemoveVoice(session uint32) {
 		return
 	}
 	if err := p.pc.RemoveTrack(st.sender); err != nil {
-		log.Printf("rtc: remove track: %v", err)
+		p.logEvent("rtc_error", "op", "remove_track", "error", err.Error())
 	}
 	delete(p.tracks, session)
 }

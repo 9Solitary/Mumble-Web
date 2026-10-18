@@ -1,7 +1,10 @@
 package bridge
 
 import (
-	"log"
+	"errors"
+	"fmt"
+	"log/slog"
+	"runtime/debug"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -20,6 +23,10 @@ type Session struct {
 	ws   *websocket.Conn
 	send chan Envelope
 	done chan struct{}
+
+	sid       string    // 随机会话标识，日志与诊断上报按它关联
+	version   string    // 构建版本（hello 下发，便于前后端日志对照）
+	startedAt time.Time // 会话开始时间（uptime_s 日志字段）
 
 	upstream      mumbleconn.Target
 	allowOverride bool // 允许浏览器在 connect 时指定其他上游服务器
@@ -50,11 +57,14 @@ type Session struct {
 	udpMux     ice.UDPMux
 }
 
-func NewSession(ws *websocket.Conn, upstream mumbleconn.Target, udpMux ice.UDPMux, publicIP string, allowOverride bool, invites *invite.Store) *Session {
+func NewSession(ws *websocket.Conn, upstream mumbleconn.Target, udpMux ice.UDPMux, publicIP string, allowOverride bool, invites *invite.Store, sid, version string) *Session {
 	return &Session{
 		ws:            ws,
 		send:          make(chan Envelope, 256),
 		done:          make(chan struct{}),
+		sid:           sid,
+		version:       version,
+		startedAt:     time.Now(),
 		upstream:      upstream,
 		allowOverride: allowOverride,
 		invites:       invites,
@@ -66,12 +76,33 @@ func NewSession(ws *websocket.Conn, upstream mumbleconn.Target, udpMux ice.UDPMu
 	}
 }
 
+// logEvent 以统一字段输出会话级结构化日志：sid + event + 会话存活秒数。
+func (s *Session) logEvent(event string, args ...any) {
+	attrs := make([]any, 0, len(args)+6)
+	attrs = append(attrs, "sid", s.sid, "event", event, "uptime_s", int64(time.Since(s.startedAt).Seconds()))
+	attrs = append(attrs, args...)
+	slog.Info(event, attrs...)
+}
+
+// recoverGo 会话内 goroutine 的 panic 兜底：记录堆栈并清理会话，不拖垮整个进程。
+func (s *Session) recoverGo(goroutine string) {
+	if r := recover(); r != nil {
+		slog.Error("panic", "sid", s.sid, "event", "panic", "goroutine", goroutine,
+			"error", fmt.Sprint(r), "stack", string(debug.Stack()))
+		s.cleanup()
+	}
+}
+
 // Run 启动写泵与读循环，阻塞直到会话结束。
 func (s *Session) Run() {
 	defer s.cleanup()
+	defer func() { s.recoverGo("run") }()
 
+	s.logEvent("session_start", "remote", s.ws.RemoteAddr().String())
 	s.push(Envelope{
-		Type: DownHello,
+		Type:    DownHello,
+		SID:     s.sid,
+		Version: s.version,
 		Server: &ServerInfoPayload{
 			Address:  s.upstream.Original,
 			Resolved: s.upstream.Address,
@@ -86,6 +117,15 @@ func (s *Session) Run() {
 	for {
 		var env Envelope
 		if err := s.ws.ReadJSON(&env); err != nil {
+			// 尽量提取 WS 关闭码，区分浏览器正常关闭与中间设备掐断
+			code := 0
+			closeText := ""
+			var ce *websocket.CloseError
+			if errors.As(err, &ce) {
+				code = ce.Code
+				closeText = ce.Text
+			}
+			s.logEvent("ws_close", "code", code, "reason", closeText, "error", err.Error())
 			return
 		}
 		s.handle(env)
@@ -97,11 +137,12 @@ func (s *Session) push(env Envelope) {
 	case s.send <- env:
 	case <-s.done:
 	default:
-		log.Printf("session: send buffer full, dropping %s", env.Type)
+		s.logEvent("send_buffer_full", "dropped", env.Type)
 	}
 }
 
 func (s *Session) writePump() {
+	defer func() { s.recoverGo("writePump") }()
 	for {
 		select {
 		case env := <-s.send:
@@ -181,14 +222,14 @@ func (s *Session) handle(env Envelope) {
 		})
 	case UpPtt:
 		if env.Active != nil {
-			log.Printf("ptt: active=%v", *env.Active)
+			s.logEvent("ptt", "active", *env.Active)
 			wasActive := s.pttActive.Swap(*env.Active)
 			if wasActive && !*env.Active {
 				// 松开按键：补发一个带终止位的空语音包，告知服务器本次发言结束
 				s.withClient(func(c *gumble.Client) {
 					seq := atomic.AddInt64(&s.voiceSeq, 1)
 					if err := c.Conn.WriteAudio(byte(4), 0, seq, true, nil, nil, nil, nil); err != nil {
-						log.Printf("mic terminator: %v", err)
+						s.logEvent("mic_terminator_error", "error", err.Error())
 					}
 				})
 			}
@@ -199,7 +240,7 @@ func (s *Session) handle(env Envelope) {
 		s.mu.Unlock()
 		if rtc != nil {
 			if err := rtc.HandleOffer(env.SDP); err != nil {
-				log.Printf("rtc offer: %v", err)
+				s.logEvent("rtc_error", "op", "offer", "error", err.Error())
 			}
 		}
 	case UpRtcAnswer:
@@ -208,7 +249,7 @@ func (s *Session) handle(env Envelope) {
 		s.mu.Unlock()
 		if rtc != nil {
 			if err := rtc.HandleAnswer(env.SDP); err != nil {
-				log.Printf("rtc answer: %v", err)
+				s.logEvent("rtc_error", "op", "answer", "error", err.Error())
 			}
 		}
 	case UpRtcIce:
@@ -217,7 +258,7 @@ func (s *Session) handle(env Envelope) {
 		s.mu.Unlock()
 		if rtc != nil {
 			if err := rtc.AddCandidate(env.Candidate, env.SDPMid); err != nil {
-				log.Printf("rtc candidate: %v", err)
+				s.logEvent("rtc_error", "op", "candidate", "error", err.Error())
 			}
 		}
 	case UpDisconnect:
@@ -252,7 +293,7 @@ func (s *Session) handleConnect(env Envelope) {
 		s.push(Envelope{Type: DownReject, Reason: "邀请链接无效或已被使用"})
 		return
 	}
-	log.Printf("邀请认领: token=%s... 用户=%s", env.InviteToken[:8], env.Username)
+	s.logEvent("invite_claim", "token", env.InviteToken[:8], "username", env.Username)
 	s.connectMumble(env.Username, inv.Password, inv.ServerAddr, true, inv.Token)
 }
 
@@ -282,12 +323,12 @@ func (s *Session) connectMumble(username, password, serverAddr string, trusted b
 			s.push(Envelope{Type: DownReject, Reason: "服务器地址解析失败: " + err.Error()})
 			return
 		}
-		log.Printf("会话覆盖上游: %s -> %s（默认 %s）", t.Original, t.Address, upstream.Original)
+		s.logEvent("upstream_override", "original", t.Original, "resolved", t.Address, "default", upstream.Original)
 		upstream = t
 	}
 
 	// 先建 WebRTC 连接（语音桥），再做 Mumble 登录
-	rtc, err := newRTCPeer(s.udpMux, s.publicIP, s.push)
+	rtc, err := newRTCPeer(s.udpMux, s.publicIP, s.push, s.logEvent)
 	if err != nil {
 		releaseInvite()
 		s.push(Envelope{Type: DownError, Reason: "WebRTC 初始化失败: " + err.Error()})
@@ -305,11 +346,11 @@ func (s *Session) connectMumble(username, password, serverAddr string, trusted b
 	if err != nil {
 		rtc.Close()
 		releaseInvite()
-		log.Printf("mumble 登录失败 (%s): %v", username, err)
+		s.logEvent("mumble_connect_failed", "username", username, "error", err.Error())
 		s.push(Envelope{Type: DownReject, Reason: err.Error()})
 		return
 	}
-	log.Printf("mumble 登录成功: %s", username)
+	s.logEvent("mumble_connect", "username", username)
 	client.RawVoiceHandler = s.onVoicePacket
 
 	s.mu.Lock()
@@ -328,7 +369,7 @@ func (s *Session) onVoicePacket(packet []byte) {
 		s.mu.Unlock()
 		if rtc != nil {
 			if err := rtc.WriteVoice(f.Session, f.Data); err != nil {
-				log.Printf("voice write: %v", err)
+				s.logEvent("voice_write_error", "error", err.Error())
 			}
 		}
 		s.talkingMu.Lock()
@@ -336,7 +377,7 @@ func (s *Session) onVoicePacket(packet []byte) {
 		n := s.voiceFrames[f.Session]
 		s.talkingMu.Unlock()
 		if n%50 == 1 {
-			log.Printf("voice: mumble->rtc session=%d frames=%d bytes=%d", f.Session, n, len(f.Data))
+			s.logEvent("voice_stats", "direction", "mumble->rtc", "mumble_session", f.Session, "frames", n, "bytes", len(f.Data))
 		}
 		s.markTalking(f.Session)
 		return true
@@ -348,7 +389,7 @@ func (s *Session) onMicFrame(opus []byte) {
 	pkts := s.micPkts.Add(1)
 	if !s.pttActive.Load() {
 		if pkts%50 == 1 {
-			log.Printf("mic: browser->proxy pkts=%d (PTT 关闭，未转发)", pkts)
+			s.logEvent("mic_stats", "direction", "browser->proxy", "pkts", pkts, "forwarded", false)
 		}
 		return
 	}
@@ -361,10 +402,10 @@ func (s *Session) onMicFrame(opus []byte) {
 	seq := atomic.AddInt64(&s.voiceSeq, 1)
 	// final=false：发言进行中，终止位只在松键时由空包携带（见 UpPtt 处理）
 	if err := c.Conn.WriteAudio(byte(4), 0, seq, false, opus, nil, nil, nil); err != nil {
-		log.Printf("mic forward: %v", err)
+		s.logEvent("mic_forward_error", "error", err.Error())
 	}
 	if fwd := s.micFwd.Add(1); fwd%50 == 1 {
-		log.Printf("mic: proxy->mumble fwd=%d bytes=%d", fwd, len(opus))
+		s.logEvent("mic_stats", "direction", "proxy->mumble", "fwd", fwd, "bytes", len(opus))
 	}
 }
 
@@ -381,6 +422,7 @@ func (s *Session) markTalking(session uint32) {
 }
 
 func (s *Session) talkingWatchdog() {
+	defer func() { s.recoverGo("talkingWatchdog") }()
 	t := time.NewTicker(150 * time.Millisecond)
 	defer t.Stop()
 	for {
@@ -445,12 +487,12 @@ func (l *mumbleListener) OnConnect(e *gumble.ConnectEvent) {
 	s := l.s
 	self := e.Client.Self
 	if self == nil {
-		log.Printf("OnConnect 但 Self 为 nil（同步异常）")
+		s.logEvent("mumble_sync_error", "reason", "未收到自己的用户信息")
 		s.push(Envelope{Type: DownError, Reason: "服务器同步异常：未收到自己的用户信息"})
 		return
 	}
-	log.Printf("mumble 同步完成: session=%d name=%s 频道=%d 用户=%d",
-		self.Session, self.Name, len(e.Client.Channels), len(e.Client.Users))
+	s.logEvent("mumble_synced", "mumble_session", self.Session, "username", self.Name,
+		"channels", len(e.Client.Channels), "users", len(e.Client.Users))
 	payload := &SelfPayload{Session: self.Session, Name: self.Name}
 	if e.WelcomeMessage != nil {
 		payload.WelcomeMessage = *e.WelcomeMessage
@@ -472,7 +514,7 @@ func (l *mumbleListener) OnDisconnect(e *gumble.DisconnectEvent) {
 	if reason == "" {
 		reason = "与服务器断开连接"
 	}
-	log.Printf("mumble 断开: %s", reason)
+	l.s.logEvent("mumble_disconnect", "reason", reason)
 	l.s.push(Envelope{Type: DownDisconnect, Reason: reason})
 }
 

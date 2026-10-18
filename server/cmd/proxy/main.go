@@ -8,10 +8,12 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -27,6 +29,9 @@ import (
 	"mumbleweb/server/internal/mumbleconn"
 )
 
+// 构建版本，由 -ldflags "-X main.version=<git sha>" 注入；本地开发默认 "dev"。
+var version = "dev"
+
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  4096,
 	WriteBufferSize: 4096,
@@ -35,6 +40,17 @@ var upgrader = websocket.Upgrader{
 }
 
 func main() {
+	// 结构化日志：JSON 输出到 stdout（容器由 json-file 驱动收集轮转），
+	// 时间字段统一命名为 ts，与会话日志的 sid/event/uptime_s 对齐。
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+			if len(groups) == 0 && a.Key == slog.TimeKey {
+				a.Key = "ts"
+			}
+			return a
+		},
+	})))
+
 	var (
 		listen        = flag.String("listen", envOr("LISTEN", ":"+envOr("PORT", "8080")), "HTTP 监听地址")
 		server        = flag.String("mumble-server", envOr("MUMBLE_SERVER", "localhost:64738"), "Mumble 服务器（host 或 host:port，无端口时走 SRV 解析）")
@@ -45,47 +61,51 @@ func main() {
 		allowOverride = flag.Bool("allow-server-override", envOr("ALLOW_SERVER_OVERRIDE", "true") != "false", "允许网页端连接时自选 Mumble 服务器")
 		inviteSecret  = flag.String("invite-secret", envOr("INVITE_SECRET", ""), "邀请链接 API 的 Bearer 密钥（留空则关闭邀请功能）")
 		inviteTTL     = flag.Duration("invite-ttl", envOrDuration("INVITE_TTL", 30*time.Minute), "邀请链接有效期")
+		diagDir       = flag.String("diag-dir", envOr("DIAG_DIR", "."), "诊断上报落盘目录（diag.jsonl）")
 	)
 	flag.Parse()
+
+	slog.Info("proxy_start", "event", "proxy_start", "version", version)
 
 	// 邀请存储：仅内存态，重启即清空（符合一次性短时效语义）
 	var inviteStore *invite.Store
 	if *inviteSecret != "" {
 		inviteStore = invite.NewStore(*inviteTTL)
 		inviteStore.StartCleaner(make(chan struct{}))
-		log.Printf("邀请功能已启用: TTL=%s", *inviteTTL)
+		slog.Info("invite_enabled", "event", "invite_enabled", "ttl", inviteTTL.String())
 	} else {
-		log.Printf("邀请功能未启用（INVITE_SECRET 未配置）")
+		slog.Info("invite_disabled", "event", "invite_disabled", "reason", "INVITE_SECRET 未配置")
 	}
 
 	target, err := mumbleconn.Resolve(*server, *tlsMode)
 	if err != nil {
-		log.Fatalf("解析 Mumble 服务器失败: %v", err)
+		slog.Error("resolve_failed", "event", "resolve_failed", "error", err.Error())
+		os.Exit(1)
 	}
-	log.Printf("上游 Mumble: %s -> %s (TLS: %s, SNI: %s)",
-		target.Original, target.Address, target.TLSMode, target.SNI)
+	slog.Info("upstream_resolved", "event", "upstream_resolved",
+		"original", target.Original, "address", target.Address, "tls", target.TLSMode, "sni", target.SNI)
 
 	// WebRTC 全局 UDP 复用端口（ICE-Lite，所有会话共享）
 	var udpMux ice.UDPMux
 	udpConn, err := net.ListenUDP("udp", &net.UDPAddr{Port: *rtcUDPPort})
 	if err != nil {
-		log.Printf("警告: WebRTC UDP 端口 %d 不可用: %v（语音将不可用）", *rtcUDPPort, err)
+		slog.Warn("rtc_udp_unavailable", "event", "rtc_udp_unavailable", "port", *rtcUDPPort, "error", err.Error())
 	} else {
 		udpMux = webrtc.NewICEUDPMux(nil, udpConn)
-		log.Printf("WebRTC ICE UDP: :%d", *rtcUDPPort)
+		slog.Info("rtc_udp_ready", "event", "rtc_udp_ready", "port", *rtcUDPPort)
 	}
+
+	diag := newDiagSink(*diagDir)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		ws, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
-			log.Printf("ws upgrade: %v", err)
+			slog.Warn("ws_upgrade_failed", "event", "ws_upgrade_failed", "error", err.Error())
 			return
 		}
-		log.Printf("新会话: %s", r.RemoteAddr)
-		sess := bridge.NewSession(ws, target, udpMux, *publicIP, *allowOverride, inviteStore)
+		sess := bridge.NewSession(ws, target, udpMux, *publicIP, *allowOverride, inviteStore, newSID(), version)
 		sess.Run()
-		log.Printf("会话结束: %s", r.RemoteAddr)
 	})
 	mux.HandleFunc("/api/server", func(w http.ResponseWriter, r *http.Request) {
 		// 供连接页预填服务器地址；不含 tlsMode，避免把 pin 指纹暴露到界面之外的接口
@@ -93,6 +113,12 @@ func main() {
 		fmt.Fprintf(w, `{"address":%q,"resolved":%q,"allowOverride":%t}`,
 			target.Original, target.Address, *allowOverride)
 	})
+	mux.HandleFunc("GET /api/version", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"version":%q}`, version)
+	})
+	// 诊断上报：前端错误/事件批量落盘 diag.jsonl（详见 diag.go 隐私说明）
+	mux.HandleFunc("POST /api/diag", diag.handler)
 	// 邀请创建：供 QQ 机器人等 bot 后端调用，需 Bearer 鉴权。
 	mux.HandleFunc("POST /api/invites", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -122,8 +148,8 @@ func main() {
 			scheme = "https"
 		}
 		url := fmt.Sprintf("%s://%s/invite/%s", scheme, r.Host, inv.Token)
-		log.Printf("创建邀请: token=%s... server=%q 有效期至 %s",
-			inv.Token[:8], req.ServerAddr, inv.ExpiresAt.Format(time.RFC3339))
+		slog.Info("invite_created", "event", "invite_created",
+			"token", inv.Token[:8], "server", req.ServerAddr, "expires_at", inv.ExpiresAt.Format(time.RFC3339))
 		fmt.Fprintf(w, `{"token":%q,"url":%q,"expiresAt":%d}`,
 			inv.Token, url, inv.ExpiresAt.Unix())
 	})
@@ -146,14 +172,27 @@ func main() {
 	if abs, err := filepath.Abs(*staticDir); err == nil {
 		if _, err := os.Stat(abs); err == nil {
 			mux.Handle("/", spaHandler(abs))
-			log.Printf("静态资源: %s", abs)
+			slog.Info("static_ready", "event", "static_ready", "dir", abs)
 		} else {
-			log.Printf("静态资源目录 %s 不存在（仅 API 模式）", abs)
+			slog.Warn("static_missing", "event", "static_missing", "dir", abs)
 		}
 	}
 
-	log.Printf("HTTP 监听: %s", *listen)
-	log.Fatal(http.ListenAndServe(*listen, mux))
+	slog.Info("http_listen", "event", "http_listen", "listen", *listen)
+	if err := http.ListenAndServe(*listen, mux); err != nil {
+		slog.Error("http_serve_failed", "event", "http_serve_failed", "error", err.Error())
+		os.Exit(1)
+	}
+}
+
+// newSID 生成随机会话标识（8 字节随机数的 hex，16 字符）。
+func newSID() string {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		// crypto/rand 不可用时退化为时间戳，仅影响日志关联，不影响功能
+		return fmt.Sprintf("%016x", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(b[:])
 }
 
 func spaHandler(dir string) http.Handler {

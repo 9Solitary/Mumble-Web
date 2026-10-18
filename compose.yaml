@@ -3,11 +3,16 @@
 #   cp .env.example .env   # 按需修改
 #   docker compose up -d
 #
-# 无数据库、无状态、无需 Volume。
+# 无数据库；仅挂载 ./diag 存放前端诊断上报（diag.jsonl）。
 
 services:
   mumble-web:
-    build: .
+    build:
+      context: .
+      args:
+        # 构建版本标识（git sha），注入到二进制的 main.version；
+        # 用法：VERSION=$(git rev-parse --short HEAD) docker compose build
+        VERSION: ${VERSION:-dev}
     image: mumble-web:latest
     container_name: mumble-web
     restart: unless-stopped
@@ -25,6 +30,15 @@ services:
       ALLOW_SERVER_OVERRIDE: ${ALLOW_SERVER_OVERRIDE:-true}
       INVITE_SECRET: ${INVITE_SECRET:-}
       INVITE_TTL: ${INVITE_TTL:-30m}
+      DIAG_DIR: /app/diag
+    volumes:
+      # 诊断上报落盘（diag.jsonl），挂载到宿主机便于采集；建议保留 7 天
+      - ./diag:/app/diag
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
       interval: 30s
