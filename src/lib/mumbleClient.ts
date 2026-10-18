@@ -121,17 +121,20 @@ export class MumbleClient {
   }
 
   async startAudio(deviceId?: string): Promise<void> {
-    try {
-      this.micStream = await navigator.mediaDevices.getUserMedia(
-        this.micConstraints(deviceId),
-      );
-    } catch (e) {
-      logEvent("gum-error", {
-        name: e instanceof Error ? e.name : "",
-        message: e instanceof Error ? e.message : String(e),
-      });
-      this.onMicError(`无法访问麦克风: ${e instanceof Error ? e.message : e}`);
-      return;
+    // 重连时复用仍存活的麦克风流，避免重新弹权限申请
+    if (!this.micStream || !this.micStream.active) {
+      try {
+        this.micStream = await navigator.mediaDevices.getUserMedia(
+          this.micConstraints(deviceId),
+        );
+      } catch (e) {
+        logEvent("gum-error", {
+          name: e instanceof Error ? e.name : "",
+          message: e instanceof Error ? e.message : String(e),
+        });
+        this.onMicError(`无法访问麦克风: ${e instanceof Error ? e.message : e}`);
+        return;
+      }
     }
     this.attachMicStream(this.micStream);
     this.rtcTrack = this.gainDest?.stream.getAudioTracks()[0] ?? null;
@@ -257,10 +260,22 @@ export class MumbleClient {
     return this.rtcTrack != null;
   }
 
-  dispose() {
-    this.send({ type: "disconnect" });
+  // 当前 WS 就绪状态（无连接时为 null）；供重连逻辑判断 WS 是否已死
+  get wsReadyState(): number | null {
+    return this.ws?.readyState ?? null;
+  }
+
+  // 只关闭 RTC 连接（重连时用）：释放旧 PeerConnection 与统计轮询，
+  // 保留麦克风流与音频增益链，重连成功后直接复用
+  closeRtc() {
     stopRtcStats();
     this.pc?.close();
+    this.pc = null;
+  }
+
+  dispose() {
+    this.send({ type: "disconnect" });
+    this.closeRtc();
     this.rtcTrack?.stop();
     this.micStream?.getTracks().forEach((t) => t.stop());
     this.ws?.close();
@@ -272,7 +287,6 @@ export class MumbleClient {
     this.audioCtx = null;
     this.gainNode = null;
     this.gainDest = null;
-    this.pc = null;
     this.micStream = null;
     this.rtcTrack = null;
     this.ws = null;

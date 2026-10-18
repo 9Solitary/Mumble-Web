@@ -8,13 +8,19 @@ import type {
   UserInfo,
 } from "@/lib/protocol";
 import { MumbleClient } from "@/lib/mumbleClient";
+import { createBackoff } from "@/lib/reconnect";
+import { logEvent } from "@/lib/diagnostics";
 
 export type ConnState =
   | "idle" // 未连接（显示登录页）
   | "connecting" // WS 已开，等待 Mumble 登录
   | "connected" // 已登录，同步中
   | "ready" // 频道树就绪
-  | "failed"; // 被拒/断开
+  | "reconnecting" // 异常断线，自动重连中
+  | "failed"; // 被拒/断开/放弃重连
+
+// 连续重连失败上限：超过后置 failed，由用户手动重试
+const MAX_RECONNECT_ATTEMPTS = 10;
 
 // ---- 本地设置持久化 ----
 const SETTINGS_KEY = "mumble-web.settings";
@@ -106,6 +112,8 @@ interface AppState {
   micGain: number; // 麦克风增益 0..2（UserBar 悬浮滑条）
   outputVolume: number; // 全局输出音量 0..1.5，与单人音量相乘
   vadActive: boolean; // VAD 当前是否开门（内部状态）
+  reconnectAttempt: number; // 本轮重连已尝试次数（重连成功后清零）
+  reconnectCount: number; // 累计重连成功次数（诊断面板展示）
 
   // actions
   connect: (username: string, password: string, serverAddr?: string, inviteToken?: string) => void;
@@ -132,19 +140,36 @@ export const useAppStore = create<AppState>((set, get) => {
   const client = new MumbleClient();
   let helloReceived = false;
 
+  // ---- 重连状态（仅内存，凭据不持久化） ----
+  interface SavedCreds {
+    username: string;
+    password: string;
+    serverAddr?: string;
+    inviteToken?: string;
+  }
+  let savedCreds: SavedCreds | null = null; // 重连重发 connect 用
+  let resumeToken: string | null = null; // 邀请用户：服务端下发的断线恢复 token
+  let manualDisconnect = false; // 用户主动断开/登出：不重连
+  let pageHiding = false; // pagehide 触发：不重连（页面正在销毁）
+  let reconnectTimer: number | null = null;
+  let desiredChannelId = 0; // 断线前所在频道，重连后自动 rejoin
+  let needRestore = false; // 重连登录成功，待 synced 后恢复静音/频道
+  const backoff = createBackoff();
+
   client.onMessage = (env) => {
     if (env.type === "hello") helloReceived = true;
     get().handleMessage(env);
   };
   client.onClose = () => {
-    if (get().connState !== "idle") {
-      set({
-        connState: "failed",
-        error: helloReceived
-          ? "与代理服务器的连接已断开"
-          : "无法连接代理服务器：WebSocket 被网络环境阻断（若在使用在线预览，可能是预览网关不支持 WebSocket，请用 Docker 部署体验完整功能）",
-      });
+    // 主动断开 / 页面销毁 / 已是终态：不进入重连
+    if (manualDisconnect || pageHiding) return;
+    const st = get().connState;
+    if (st === "idle" || st === "failed") return;
+    if (st === "reconnecting") {
+      scheduleNextAttempt(); // 重连尝试本身失败：继续下一轮退避
+      return;
     }
+    beginReconnect();
   };
   client.onRemoteTrack = (session, stream) =>
     set((s) => ({ remoteStreams: { ...s.remoteStreams, [session]: stream } }));
@@ -159,6 +184,135 @@ export const useAppStore = create<AppState>((set, get) => {
     applyMicGate();
   };
   client.onMicError = (err) => set({ micError: err });
+
+  // ---- 自动重连 ----
+
+  // 构造 connect 信封：邀请用户优先用 resumeToken（契约 3，与 password/inviteToken 互斥）
+  const buildConnectEnvelope = (): Envelope | null => {
+    if (resumeToken && savedCreds) {
+      return { type: "connect", username: savedCreds.username, resumeToken };
+    }
+    if (!savedCreds) return null;
+    const { username, password, serverAddr, inviteToken } = savedCreds;
+    return {
+      type: "connect",
+      username,
+      ...(inviteToken
+        ? { inviteToken }
+        : { password, ...(serverAddr ? { serverAddr } : {}) }),
+    };
+  };
+
+  // 首次异常断开：关旧 RTC（保留麦克风流），进入 reconnecting
+  const beginReconnect = () => {
+    if (!savedCreds) {
+      // 没有可重放的凭据，退化为旧的失败提示
+      set({
+        connState: "failed",
+        error: helloReceived
+          ? "与代理服务器的连接已断开"
+          : "无法连接代理服务器：WebSocket 被网络环境阻断（若在使用在线预览，可能是预览网关不支持 WebSocket，请用 Docker 部署体验完整功能）",
+      });
+      return;
+    }
+    desiredChannelId = get().self?.channelId ?? get().currentChannelId;
+    client.closeRtc();
+    logEvent("reconnect", { phase: "begin" });
+    set({
+      connState: "reconnecting",
+      reconnectAttempt: 0,
+      remoteStreams: {},
+      talking: {},
+      selfTalking: false,
+    });
+    scheduleNextAttempt();
+  };
+
+  const scheduleNextAttempt = () => {
+    if (reconnectTimer != null) return; // 已有待执行的尝试
+    const attempt = get().reconnectAttempt + 1;
+    if (attempt > MAX_RECONNECT_ATTEMPTS) {
+      logEvent("reconnect", { phase: "giveup", attempts: MAX_RECONNECT_ATTEMPTS });
+      backoff.reset();
+      set({
+        connState: "failed",
+        reconnectAttempt: 0,
+        error:
+          get().error ||
+          (helloReceived
+            ? "与代理服务器的连接已断开，自动重连失败，请手动重试"
+            : "无法连接代理服务器：WebSocket 被网络环境阻断（若在使用在线预览，可能是预览网关不支持 WebSocket，请用 Docker 部署体验完整功能）"),
+      });
+      return;
+    }
+    const delay = backoff.next();
+    set({ reconnectAttempt: attempt });
+    logEvent("reconnect", { phase: "attempt", attempt, delayMs: delay });
+    reconnectTimer = window.setTimeout(() => {
+      reconnectTimer = null;
+      doAttempt();
+    }, delay);
+  };
+
+  const doAttempt = () => {
+    const env = buildConnectEnvelope();
+    if (!env) {
+      set({ connState: "failed", error: "缺少重连凭据，请重新连接" });
+      return;
+    }
+    client.onOpen = () => client.send(env);
+    client.connect();
+  };
+
+  // 回前台 / 网络恢复：正在退避等待则立即重试；WS 已死但未进入重连则立即开始
+  const retryNow = () => {
+    const st = get().connState;
+    if (st === "reconnecting") {
+      if (reconnectTimer != null) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+        doAttempt();
+      }
+      return;
+    }
+    if (
+      (st === "connected" || st === "ready") &&
+      (client.wsReadyState === WebSocket.CLOSED ||
+        client.wsReadyState === WebSocket.CLOSING)
+    ) {
+      beginReconnect();
+    }
+  };
+
+  // 重连且同步完成后：恢复静音/闭麦状态，自动 rejoin 断线前所在频道
+  const restoreSession = () => {
+    const { selfMuted, selfDeafened, channels } = get();
+    if (selfMuted) client.send({ type: "setSelfMute", mute: true });
+    if (selfDeafened) client.send({ type: "setSelfDeaf", deaf: true });
+    const me = get().self;
+    if (me && desiredChannelId !== me.channelId && channels[desiredChannelId]) {
+      get().joinChannel(desiredChannelId);
+    }
+  };
+
+  const cancelReconnect = () => {
+    if (reconnectTimer != null) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    backoff.reset();
+    needRestore = false;
+  };
+
+  if (typeof window !== "undefined") {
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") retryNow();
+    });
+    window.addEventListener("online", retryNow);
+    window.addEventListener("pagehide", () => {
+      pageHiding = true;
+    });
+  }
 
   // 根据 PTT 模式、VAD 与静音状态同步「实际是否在发送」
   const applyMicGate = () => {
@@ -239,25 +393,32 @@ export const useAppStore = create<AppState>((set, get) => {
     micGain: persisted.micGain ?? 1,
     outputVolume: persisted.outputVolume ?? 1,
     vadActive: false,
+    reconnectAttempt: 0,
+    reconnectCount: 0,
 
     connect: (username, password, serverAddr, inviteToken) => {
       set({ connState: "connecting", error: "", inviteToken: inviteToken ?? null });
       helloReceived = false;
+      manualDisconnect = false;
+      resumeToken = null;
+      cancelReconnect();
+      // 凭据只存内存（不落盘），供断线重连重放
+      savedCreds = { username, password, serverAddr, inviteToken };
       saveIdentity(inviteToken ? { username } : { username, serverAddr });
       // WS 打开后立即发送登录请求（onopen 回调，不靠定时器猜测时序）
       // 邀请模式下不带密码与服务器地址，由代理按 token 存储的值登录
-      client.onOpen = () =>
-        client.send({
-          type: "connect",
-          username,
-          ...(inviteToken
-            ? { inviteToken }
-            : { password, ...(serverAddr ? { serverAddr } : {}) }),
-        });
+      client.onOpen = () => {
+        const env = buildConnectEnvelope();
+        if (env) client.send(env);
+      };
       client.connect();
     },
 
     disconnect: () => {
+      manualDisconnect = true; // 主动断开：onClose 不触发重连
+      savedCreds = null;
+      resumeToken = null;
+      cancelReconnect();
       client.dispose();
       const wasInvite = get().inviteToken != null;
       set({
@@ -278,6 +439,7 @@ export const useAppStore = create<AppState>((set, get) => {
         selfMuted: false,
         selfDeafened: false,
         vadActive: false,
+        reconnectAttempt: 0,
         maxMessageLength: 5000,
         maxImageMessageLength: 131072,
       });
@@ -300,26 +462,54 @@ export const useAppStore = create<AppState>((set, get) => {
         case "hello":
           if (env.server) set({ server: env.server });
           break;
+        case "resume_token":
+          // 邀请用户的断线恢复 token（仅内存保存，refresh 后走邀请流程重来）
+          if (env.token) resumeToken = env.token;
+          break;
         case "connected":
           if (env.self) {
+            const wasReconnecting = s.connState === "reconnecting";
+            if (wasReconnecting) {
+              backoff.reset();
+              needRestore = true;
+              logEvent("reconnect", {
+                phase: "success",
+                attempts: s.reconnectAttempt,
+              });
+            }
             set({
               connState: "connected",
+              error: "",
               self: env.self,
               currentChannelId: env.self.channelId,
               selectedChannelId: env.self.channelId,
+              reconnectAttempt: 0,
+              reconnectCount: wasReconnecting
+                ? s.reconnectCount + 1
+                : s.reconnectCount,
+              // 重连后服务端会全量重发频道/用户，清空避免断线期间离开的用户成幽灵
+              ...(wasReconnecting ? { channels: {}, users: {} } : {}),
             });
-            // 登录成功后立即建立语音
+            // 登录成功后立即建立语音（重连时复用麦克风流，不重新弹权限）
             void client.startAudio(get().inputDeviceId || undefined);
           }
           break;
         case "synced":
           set({ connState: "ready" });
+          if (needRestore) {
+            needRestore = false;
+            restoreSession();
+          }
           break;
         case "reject":
-          set({ connState: "failed", error: env.reason || "登录被拒绝" });
+          // 拒绝（含 resumeToken 失效）：不再重试，由用户手动重连
+          cancelReconnect();
+          set({ connState: "failed", reconnectAttempt: 0, error: env.reason || "登录被拒绝" });
           break;
         case "disconnected":
-          set({ connState: "failed", error: env.reason || "已断开" });
+          // 契约 4：服务端先推 disconnected 再以 1011 关 WS，重连由 onClose 驱动；
+          // 这里只记录原因，供放弃重连时展示
+          set({ error: env.reason || "已断开" });
           break;
         case "channel":
           if (env.channel)

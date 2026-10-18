@@ -59,6 +59,9 @@ export interface Envelope {
   password?: string;
   serverAddr?: string; // connect 时可选：覆盖代理默认上游服务器
   inviteToken?: string; // connect 时可选：一次性邀请 token（服务器/密码以服务端存储为准）
+  resumeToken?: string; // connect 时可选：断线恢复 token（与 password/inviteToken 互斥）
+  token?: string; // resume_token 信封：断线恢复 token
+  expiresAt?: number; // resume_token 信封：过期时间（unix 秒）
   session?: number;
   channelId?: number;
   message?: string;

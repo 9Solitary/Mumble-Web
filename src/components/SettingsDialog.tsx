@@ -75,6 +75,7 @@ function DiagnosticsSection() {
   const [stats, setStats] = useState<RtcStatsSnapshot>(getLatestStats);
   const [session, setSession] = useState(getSession);
   const [copied, setCopied] = useState(false);
+  const reconnectCount = useAppStore((s) => s.reconnectCount);
 
   useEffect(() => {
     if (!expanded) return;
@@ -104,7 +105,7 @@ function DiagnosticsSection() {
     ],
     ["RTC 状态", stats.connectionState],
     ["ICE 状态", stats.iceConnectionState],
-    ["重连次数", "-"], // 阶段 2 才实现重连
+    ["重连次数", String(reconnectCount)],
     ["会话 ID", session.sid || "-"],
     ["版本", session.version || "-"],
   ];

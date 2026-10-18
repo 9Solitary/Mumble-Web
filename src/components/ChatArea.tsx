@@ -74,8 +74,9 @@ function MessageRow({ msg }: { msg: TextMessageInfo }) {
 }
 
 export function ChatArea() {
-  const { channels, currentChannelId, messages, sendText, self, maxImageMessageLength } =
+  const { channels, currentChannelId, messages, sendText, self, maxImageMessageLength, connState } =
     useAppStore();
+  const reconnecting = connState === "reconnecting";
   const [draft, setDraft] = useState("");
   const [sendingImage, setSendingImage] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -89,6 +90,7 @@ export function ChatArea() {
   }, [channelMessages.length, currentChannelId]);
 
   const submit = () => {
+    if (reconnecting) return; // 重连期间消息发不出去，禁止提交
     const text = draft.trim();
     if (!text) return;
     sendText(currentChannelId, text);
@@ -200,18 +202,23 @@ export function ChatArea() {
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onPaste={pickImage}
+            disabled={reconnecting}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
                 submit();
               }
             }}
-            placeholder={`发消息到 ${channel?.name ?? ""}（可粘贴图片）`}
-            className="flex-1 bg-transparent py-2.5 text-sm text-[#dbdee1] placeholder:text-[#6d6f78] outline-none"
+            placeholder={
+              reconnecting
+                ? "连接已断开，正在重连…"
+                : `发消息到 ${channel?.name ?? ""}（可粘贴图片）`
+            }
+            className="flex-1 bg-transparent py-2.5 text-sm text-[#dbdee1] placeholder:text-[#6d6f78] outline-none disabled:opacity-50"
           />
           <button
             onClick={submit}
-            disabled={!draft.trim()}
+            disabled={!draft.trim() || reconnecting}
             className="text-[#b5bac1] hover:text-white disabled:opacity-30 transition-colors"
           >
             <SendHorizonal className="w-5 h-5" />
