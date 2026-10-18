@@ -61,6 +61,9 @@ type Session struct {
 	talking     map[uint32]bool
 	voiceFrames map[uint32]int
 
+	// 下行语音到达间隔统计（mumble->rtc，观测 TCP 隧道是否有突发成串到达）
+	downlink map[uint32]*downlinkStats
+
 	// 语音链路诊断计数
 	micPkts atomic.Int64 // 浏览器->代理 RTP 包数
 	micFwd  atomic.Int64 // 代理->Mumble 转发帧数
@@ -84,6 +87,7 @@ func NewSession(ws *websocket.Conn, upstream mumbleconn.Target, udpMux ice.UDPMu
 		lastVoice:     make(map[uint32]time.Time),
 		talking:       make(map[uint32]bool),
 		voiceFrames:   make(map[uint32]int),
+		downlink:      make(map[uint32]*downlinkStats),
 		udpMux:        udpMux,
 		publicIP:      publicIP,
 	}
@@ -479,6 +483,40 @@ func (s *Session) connectMumble(username, password, serverAddr string, trusted b
 	}
 }
 
+// 下行语音观测阈值：
+// 正常 Opus 帧间隔约 20ms（协商 ptime=10 时 10ms）；gap 超过 100ms 视为一次突发（成串到达），
+// 超过 500ms 认为是一段发言结束后的停顿，不计入间隔统计（否则说话间隙会污染 max/突发计数）。
+const (
+	downlinkBurstGapMs   = 100
+	downlinkSilenceGapMs = 500
+)
+
+// downlinkStats 是单路说话人（Mumble session）的下行帧到达间隔统计。
+// 只被 gumble 读协程写入，读取（日志）也在同一协程，无并发竞争。
+type downlinkStats struct {
+	last   time.Time // 上一帧到达时间
+	frames int       // 累计帧数
+	sumGap int64     // 有效间隔样本之和（ms）
+	gapN   int       // 有效间隔样本数
+	maxGap int64     // 最大帧间隔（ms）——head-of-line blocking 的直接证据
+	bursts int       // gap > downlinkBurstGapMs 的突发次数
+}
+
+// recordGap 记录一个帧间隔样本；超过静默阈值视为新一段发言的开始，不计入统计。
+func (st *downlinkStats) recordGap(gapMs int64) {
+	if gapMs > downlinkSilenceGapMs {
+		return
+	}
+	st.sumGap += gapMs
+	st.gapN++
+	if gapMs > st.maxGap {
+		st.maxGap = gapMs
+	}
+	if gapMs > downlinkBurstGapMs {
+		st.bursts++
+	}
+}
+
 // onVoicePacket 收到 Mumble 语音包（gumble 读协程调用，禁止阻塞）。
 func (s *Session) onVoicePacket(packet []byte) {
 	ParseVoicePacket(packet, func(f VoiceFrame) bool {
@@ -490,12 +528,31 @@ func (s *Session) onVoicePacket(packet []byte) {
 				s.logEvent("voice_write_error", "error", err.Error())
 			}
 		}
+		now := time.Now()
 		s.talkingMu.Lock()
 		s.voiceFrames[f.Session]++
 		n := s.voiceFrames[f.Session]
+		st := s.downlink[f.Session]
+		if st == nil {
+			st = &downlinkStats{}
+			s.downlink[f.Session] = st
+		}
+		if !st.last.IsZero() {
+			st.recordGap(now.Sub(st.last).Milliseconds())
+		}
+		st.last = now
+		st.frames++
 		s.talkingMu.Unlock()
+		// 与上行 mic_rtp_stats 同节奏（每 50 帧一条）：
+		// max gap 与突发计数用于判断 TCP 隧道是否存在 head-of-line blocking
 		if n%50 == 1 {
-			s.logEvent("voice_stats", "direction", "mumble->rtc", "mumble_session", f.Session, "frames", n, "bytes", len(f.Data))
+			var gapAvg int64
+			if st.gapN > 0 {
+				gapAvg = st.sumGap / int64(st.gapN)
+			}
+			s.logEvent("voice_downlink_stats", "mumble_session", f.Session, "frames", n,
+				"bytes", len(f.Data), "gap_avg_ms", gapAvg, "gap_max_ms", st.maxGap,
+				"bursts_gt100ms", st.bursts)
 		}
 		s.markTalking(f.Session)
 		return true

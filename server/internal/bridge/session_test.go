@@ -8,6 +8,35 @@ import (
 	"mumbleweb/server/internal/invite"
 )
 
+// TestDownlinkRecordGap 验证下行帧间隔统计：正常间隔计入、突发计数、静默期不计入。
+func TestDownlinkRecordGap(t *testing.T) {
+	st := &downlinkStats{}
+
+	// 连续语音：20ms 正常帧间隔
+	for i := 0; i < 10; i++ {
+		st.recordGap(20)
+	}
+	if st.gapN != 10 || st.maxGap != 20 || st.bursts != 0 {
+		t.Fatalf("正常间隔: gapN=%d maxGap=%d bursts=%d，预期 10/20/0", st.gapN, st.maxGap, st.bursts)
+	}
+
+	// 150ms 间隔：计入且算一次突发
+	st.recordGap(150)
+	if st.gapN != 11 || st.maxGap != 150 || st.bursts != 1 {
+		t.Fatalf("突发: gapN=%d maxGap=%d bursts=%d，预期 11/150/1", st.gapN, st.maxGap, st.bursts)
+	}
+
+	// 600ms 间隔：视为说话间隙，不计入统计
+	st.recordGap(600)
+	if st.gapN != 11 || st.maxGap != 150 || st.bursts != 1 {
+		t.Fatalf("静默期不应计入: gapN=%d maxGap=%d bursts=%d", st.gapN, st.maxGap, st.bursts)
+	}
+
+	if avg := st.sumGap / int64(st.gapN); avg != (20*10+150)/11 {
+		t.Fatalf("gap 均值错误: %d", avg)
+	}
+}
+
 // TestCleanupIdempotent 模拟 WS 读错误 / Mumble 断开 / 前端主动 disconnect
 // 并发触发清理：不得 panic、不得重复关闭 channel、邀请只作废一次。
 func TestCleanupIdempotent(t *testing.T) {
