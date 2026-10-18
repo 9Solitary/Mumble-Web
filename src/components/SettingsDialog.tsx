@@ -100,7 +100,9 @@ function DiagnosticsSection() {
 
   const rows: [string, string][] = [
     ["RTT", fmtMs(stats.rttMs)],
-    ["抖动缓冲延迟", fmtMs(stats.jitterBufferDelayMs)],
+    ["抖动缓冲水位", fmtMs(stats.jitterBufferDelayMs)],
+    ["缓冲目标", fmtMs(stats.jitterBufferTargetMs)],
+    ["网络最低延迟", fmtMs(stats.jitterBufferMinimumMs)],
     [
       "丢包率",
       stats.lossPct == null ? "-" : `${stats.lossPct.toFixed(1)}%`,
