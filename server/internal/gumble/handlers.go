@@ -210,6 +210,8 @@ func (c *Client) handlePing(buffer []byte) error {
 		// average is in milliseconds
 		ping := float32(diff.Seconds() * 1000)
 		c.tcpPingTimes[index] = ping
+		// mumble-web patch: 记录最近一次 RTT，供 pingRoutine 周期输出日志
+		atomic.StoreUint32(&c.tcpPingLast, math.Float32bits(ping))
 
 		var sum float32
 		for i := 0; i <= index; i++ {

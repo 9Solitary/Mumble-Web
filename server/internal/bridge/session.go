@@ -491,30 +491,46 @@ const (
 	downlinkSilenceGapMs = 500
 )
 
-// downlinkStats 是单路说话人（Mumble session）的下行帧到达间隔统计。
+// gapStats 是通用的间隔统计（帧到达间隔、写调用间隔共用同一口径）。
+type gapStats struct {
+	sumGap int64 // 有效间隔样本之和（ms）
+	gapN   int   // 有效间隔样本数
+	maxGap int64 // 最大间隔（ms）——head-of-line blocking 的直接证据
+	bursts int   // gap > downlinkBurstGapMs 的突发次数
+}
+
+// record 记录一个间隔样本；超过静默阈值视为新一段发言的开始，不计入统计。
+func (g *gapStats) record(gapMs int64) {
+	if gapMs > downlinkSilenceGapMs {
+		return
+	}
+	g.sumGap += gapMs
+	g.gapN++
+	if gapMs > g.maxGap {
+		g.maxGap = gapMs
+	}
+	if gapMs > downlinkBurstGapMs {
+		g.bursts++
+	}
+}
+
+func (g *gapStats) avg() int64 {
+	if g.gapN == 0 {
+		return 0
+	}
+	return g.sumGap / int64(g.gapN)
+}
+
+// downlinkStats 是单路说话人（Mumble session）的下行语音统计。
 // 只被 gumble 读协程写入，读取（日志）也在同一协程，无并发竞争。
 type downlinkStats struct {
 	last   time.Time // 上一帧到达时间
 	frames int       // 累计帧数
-	sumGap int64     // 有效间隔样本之和（ms）
-	gapN   int       // 有效间隔样本数
-	maxGap int64     // 最大帧间隔（ms）——head-of-line blocking 的直接证据
-	bursts int       // gap > downlinkBurstGapMs 的突发次数
-}
-
-// recordGap 记录一个帧间隔样本；超过静默阈值视为新一段发言的开始，不计入统计。
-func (st *downlinkStats) recordGap(gapMs int64) {
-	if gapMs > downlinkSilenceGapMs {
-		return
-	}
-	st.sumGap += gapMs
-	st.gapN++
-	if gapMs > st.maxGap {
-		st.maxGap = gapMs
-	}
-	if gapMs > downlinkBurstGapMs {
-		st.bursts++
-	}
+	arrive gapStats  // 帧到达间隔（murmur->代理）
+	// 写侧（代理->浏览器 WebRTC）：
+	wrLast   time.Time // 上一次 WriteVoice 调用时间
+	write    gapStats  // 写调用间隔
+	wrMaxDur int64     // 单次 WriteVoice 最大耗时（ms）——暴露锁等待/WriteSample 阻塞
 }
 
 // onVoicePacket 收到 Mumble 语音包（gumble 读协程调用，禁止阻塞）。
@@ -523,12 +539,15 @@ func (s *Session) onVoicePacket(packet []byte) {
 		s.mu.Lock()
 		rtc := s.rtc
 		s.mu.Unlock()
+		now := time.Now()
+		wrDur := int64(-1) // -1 表示 rtc 未就绪、本帧未写
 		if rtc != nil {
+			wrStart := time.Now()
 			if err := rtc.WriteVoice(f.Session, f.Data); err != nil {
 				s.logEvent("voice_write_error", "error", err.Error())
 			}
+			wrDur = time.Since(wrStart).Milliseconds()
 		}
-		now := time.Now()
 		s.talkingMu.Lock()
 		s.voiceFrames[f.Session]++
 		n := s.voiceFrames[f.Session]
@@ -538,21 +557,29 @@ func (s *Session) onVoicePacket(packet []byte) {
 			s.downlink[f.Session] = st
 		}
 		if !st.last.IsZero() {
-			st.recordGap(now.Sub(st.last).Milliseconds())
+			st.arrive.record(now.Sub(st.last).Milliseconds())
 		}
 		st.last = now
 		st.frames++
+		if rtc != nil {
+			if !st.wrLast.IsZero() {
+				st.write.record(now.Sub(st.wrLast).Milliseconds())
+			}
+			st.wrLast = now
+			if wrDur > st.wrMaxDur {
+				st.wrMaxDur = wrDur
+			}
+		}
 		s.talkingMu.Unlock()
 		// 与上行 mic_rtp_stats 同节奏（每 50 帧一条）：
-		// max gap 与突发计数用于判断 TCP 隧道是否存在 head-of-line blocking
+		// 到达间隔（gap_*）与写调用间隔（wr_gap_*）对比可定位突发发生的环节，
+		// wr_dur_max_ms 暴露写侧锁等待/阻塞
 		if n%50 == 1 {
-			var gapAvg int64
-			if st.gapN > 0 {
-				gapAvg = st.sumGap / int64(st.gapN)
-			}
 			s.logEvent("voice_downlink_stats", "mumble_session", f.Session, "frames", n,
-				"bytes", len(f.Data), "gap_avg_ms", gapAvg, "gap_max_ms", st.maxGap,
-				"bursts_gt100ms", st.bursts)
+				"bytes", len(f.Data),
+				"gap_avg_ms", st.arrive.avg(), "gap_max_ms", st.arrive.maxGap, "bursts_gt100ms", st.arrive.bursts,
+				"wr_gap_avg_ms", st.write.avg(), "wr_gap_max_ms", st.write.maxGap, "wr_bursts_gt100ms", st.write.bursts,
+				"wr_dur_max_ms", st.wrMaxDur)
 		}
 		s.markTalking(f.Session)
 		return true

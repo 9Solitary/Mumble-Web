@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"io"
+	"log/slog"
 	"math"
 	"net"
 	"runtime"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/golang/protobuf/proto"
 	"mumbleweb/server/internal/gumble/MumbleProto"
+	"mumbleweb/server/internal/gumble/varint"
 )
 
 // State is the current state of the client's connection to the server.
@@ -55,6 +57,10 @@ type Client struct {
 	tcpPingTimes       [12]float32
 	tcpPingAvg         uint32
 	tcpPingVar         uint32
+	tcpPingLast        uint32 // 最近一次 Ping RTT（float32 bits，毫秒）
+
+	// 读侧语音到达间隔统计（session -> 统计），仅读协程访问，无锁
+	voiceReadStats map[uint32]*voiceGapStats
 
 	// A collection containing the server's context actions.
 	ContextActions ContextActions
@@ -111,6 +117,8 @@ func DialWithDialer(dialer *net.Dialer, addr string, config *Config, tlsConfig *
 		Channels: make(Channels),
 
 		permissions: make(map[uint32]*Permission),
+
+		voiceReadStats: make(map[uint32]*voiceGapStats),
 
 		state: uint32(StateConnected),
 
@@ -214,6 +222,7 @@ func (c *Client) pingRoutine() {
 	}
 
 	t := time.Now()
+	tick := 0
 	for {
 		timestamp = uint64(t.UnixNano())
 		tcpPingAvg = math.Float32frombits(atomic.LoadUint32(&c.tcpPingAvg))
@@ -224,7 +233,15 @@ func (c *Client) pingRoutine() {
 		case <-c.end:
 			return
 		case t = <-ticker.C:
-			// continue to top of loop
+			tick++
+			// mumble-web patch: 每 30s 输出一次 Ping RTT。
+			// 语音与 Ping 共用同一条 TCP：语音突发期间 RTT 同步飙升是网络层问题的强证据。
+			// gumble 层拿不到 sid，用 username 关联（bridge 侧 mumble_connect 日志含 sid+username）。
+			if tick%6 == 0 {
+				slog.Info("mumble_ping_rtt", "event", "mumble_ping_rtt", "username", c.Config.Username,
+					"rtt_ms", math.Float32frombits(atomic.LoadUint32(&c.tcpPingLast)),
+					"rtt_avg_ms", tcpPingAvg, "rtt_var_ms", tcpPingVar)
+			}
 		}
 	}
 }
@@ -244,6 +261,11 @@ func (c *Client) readRoutine() {
 			readErr = err
 			break
 		}
+		// mumble-web patch: UDPTunnel 语音包在 ReadPacket 返回处就地打点，
+		// 与 bridge 层 onVoicePacket 的统计对比可定位突发成串到达发生在哪一段
+		if pType == messageTypeUDPTunnel {
+			c.noteVoiceRead(data, time.Now())
+		}
 		if int(pType) < len(handlers) {
 			handlers[pType](c, data)
 		}
@@ -258,6 +280,72 @@ func (c *Client) readRoutine() {
 	}
 	if wasSynced {
 		c.Config.Listeners.onDisconnect(&c.disconnectEvent)
+	}
+}
+
+// 读侧语音观测阈值，与 bridge 层 downlinkStats 同口径：
+// 正常帧间隔约 10~20ms；>100ms 计一次突发，>500ms 视为说话间隙不计入统计。
+const (
+	voiceReadBurstGapMs   = 100
+	voiceReadSilenceGapMs = 500
+)
+
+// messageTypeUDPTunnel 是 UDPTunnel 消息在 handlers 表中的下标。
+const messageTypeUDPTunnel = 1
+
+// voiceGapStats 是单路说话人的读侧到达间隔统计（仅读协程访问，无锁）。
+type voiceGapStats struct {
+	last   time.Time
+	frames int
+	sumGap int64
+	gapN   int
+	maxGap int64
+	bursts int
+}
+
+func (g *voiceGapStats) record(now time.Time) {
+	if !g.last.IsZero() {
+		if gap := now.Sub(g.last).Milliseconds(); gap <= voiceReadSilenceGapMs {
+			g.sumGap += gap
+			g.gapN++
+			if gap > g.maxGap {
+				g.maxGap = gap
+			}
+			if gap > voiceReadBurstGapMs {
+				g.bursts++
+			}
+		}
+	}
+	g.last = now
+	g.frames++
+}
+
+// noteVoiceRead 在读协程记录 UDPTunnel 语音包到达时间，按说话人统计到达间隔。
+// 判读：读侧平滑而 bridge 侧有突发 = 代理内部停顿（读协程被同步写阻塞）；
+// 两侧一致突发 = 数据到达内核时就已成批（网络/TCP 或 murmur 调度），代理无责。
+func (c *Client) noteVoiceRead(packet []byte, now time.Time) {
+	// 只看 Opus 语音帧：byte0 = (codec << 5) | target
+	if len(packet) < 2 || (packet[0]>>5)&0x7 != audioCodecIDOpus {
+		return
+	}
+	session, n := varint.Decode(packet[1:])
+	if n <= 0 {
+		return
+	}
+	st := c.voiceReadStats[uint32(session)]
+	if st == nil {
+		st = &voiceGapStats{}
+		c.voiceReadStats[uint32(session)] = st
+	}
+	st.record(now)
+	if st.frames%50 == 1 {
+		var gapAvg int64
+		if st.gapN > 0 {
+			gapAvg = st.sumGap / int64(st.gapN)
+		}
+		slog.Info("mumble_read_stats", "event", "mumble_read_stats", "username", c.Config.Username,
+			"mumble_session", session, "frames", st.frames,
+			"rd_gap_avg_ms", gapAvg, "rd_gap_max_ms", st.maxGap, "rd_bursts_gt100ms", st.bursts)
 	}
 }
 
