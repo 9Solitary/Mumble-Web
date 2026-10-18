@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Slider } from "@/components/ui/slider";
+import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import {
@@ -28,6 +29,7 @@ import {
   ChevronDown,
   Copy,
   Check,
+  Zap,
 } from "lucide-react";
 import { exportJSON, getSession } from "@/lib/diagnostics";
 import { getLatestStats, type RtcStatsSnapshot } from "@/lib/rtcStats";
@@ -200,10 +202,12 @@ export function SettingsDialog({
     outputDeviceId,
     vadThreshold,
     pttMode,
+    lowLatencyBuffer,
     setInputDevice,
     setOutputDevice,
     setVadThreshold,
     setPttMode,
+    setLowLatencyBuffer,
     disconnect,
   } = useAppStore();
   const { inputs, outputs } = useAudioDevices(open);
@@ -298,6 +302,27 @@ export function SettingsDialog({
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          {/* 低延迟接收缓冲 */}
+          <div className="flex items-start justify-between gap-3">
+            <div className="space-y-1 min-w-0">
+              <Label
+                htmlFor="low-latency"
+                className="flex items-center gap-2 text-xs font-bold uppercase text-[#b5bac1]"
+              >
+                <Zap className="w-4 h-4" /> 低延迟接收缓冲
+              </Label>
+              <p className="text-[11px] text-[#6d6f78]">
+                将远端语音的接收缓冲目标设为约 100ms（提示值，浏览器仍会随网络状况微调）；
+                网络抖动大时可能出现断续，关闭则恢复浏览器自适应缓冲
+              </p>
+            </div>
+            <Switch
+              id="low-latency"
+              checked={lowLatencyBuffer}
+              onCheckedChange={setLowLatencyBuffer}
+            />
           </div>
 
           {/* 发言方式 */}

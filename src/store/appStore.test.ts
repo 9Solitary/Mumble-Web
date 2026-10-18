@@ -168,8 +168,7 @@ describe("appStore 重连状态机", () => {
     expect(env.inviteToken).toBeUndefined();
   });
 
-  it("服务端 disconnected 信封不直接置 failed（等 1011 关闭驱动重连）", async () => {
-    useAppStore.getState().connect("alice", "pw123");
+  it("服务端 disconnected 信封不直接置 failed（等 1011 关闭驱动重连）", async () => {    useAppStore.getState().connect("alice", "pw123");
     const ws1 = MockWS.instances[0];
     await login(ws1);
 
@@ -179,5 +178,14 @@ describe("appStore 重连状态机", () => {
 
     ws1.drop(1011);
     expect(useAppStore.getState().connState).toBe("reconnecting");
+  });
+
+  it("低延迟接收缓冲：默认开启，切换后持久化到 localStorage", () => {
+    expect(useAppStore.getState().lowLatencyBuffer).toBe(true);
+    useAppStore.getState().setLowLatencyBuffer(false);
+    expect(useAppStore.getState().lowLatencyBuffer).toBe(false);
+    const saved = JSON.parse(localStorage.getItem("mumble-web.settings") ?? "{}");
+    expect(saved.lowLatencyBuffer).toBe(false);
+    useAppStore.getState().setLowLatencyBuffer(true); // 还原默认值
   });
 });

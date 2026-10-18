@@ -31,6 +31,7 @@ interface PersistedSettings {
   vadThreshold?: number;
   micGain?: number; // 麦克风增益 0..2
   outputVolume?: number; // 全局输出音量 0..1.5
+  lowLatencyBuffer?: boolean; // 低延迟接收缓冲（缺省视为 true）
 }
 
 function loadSettings(): PersistedSettings {
@@ -111,6 +112,7 @@ interface AppState {
   vadThreshold: number; // 自由发言触发阈值 0..1（0 = 持续传输）
   micGain: number; // 麦克风增益 0..2（UserBar 悬浮滑条）
   outputVolume: number; // 全局输出音量 0..1.5，与单人音量相乘
+  lowLatencyBuffer: boolean; // 低延迟接收缓冲（jitterBufferTarget=100ms）
   vadActive: boolean; // VAD 当前是否开门（内部状态）
   reconnectAttempt: number; // 本轮重连已尝试次数（重连成功后清零）
   reconnectCount: number; // 累计重连成功次数（诊断面板展示）
@@ -134,6 +136,7 @@ interface AppState {
   setVadThreshold: (v: number) => void;
   setMicGain: (v: number) => void;
   setOutputVolume: (v: number) => void;
+  setLowLatencyBuffer: (on: boolean) => void;
 }
 
 export const useAppStore = create<AppState>((set, get) => {
@@ -361,6 +364,7 @@ export const useAppStore = create<AppState>((set, get) => {
 
   const persisted = loadSettings();
   client.setMicGain(persisted.micGain ?? 1); // 把持久化的增益同步进音频链
+  client.setLowLatencyBuffer(persisted.lowLatencyBuffer ?? true); // 默认开启低延迟接收缓冲
 
   return {
     client,
@@ -392,6 +396,7 @@ export const useAppStore = create<AppState>((set, get) => {
     vadThreshold: persisted.vadThreshold ?? 0,
     micGain: persisted.micGain ?? 1,
     outputVolume: persisted.outputVolume ?? 1,
+    lowLatencyBuffer: persisted.lowLatencyBuffer ?? true,
     vadActive: false,
     reconnectAttempt: 0,
     reconnectCount: 0,
@@ -649,6 +654,11 @@ export const useAppStore = create<AppState>((set, get) => {
     setOutputVolume: (v) => {
       set({ outputVolume: v });
       saveSettings({ outputVolume: v });
+    },
+    setLowLatencyBuffer: (on) => {
+      set({ lowLatencyBuffer: on });
+      saveSettings({ lowLatencyBuffer: on });
+      client.setLowLatencyBuffer(on); // 对现有 receivers 即时生效
     },
   };
 });

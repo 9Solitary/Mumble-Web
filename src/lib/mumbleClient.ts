@@ -1,6 +1,7 @@
 import type { Envelope } from "./protocol";
 import { logEvent, setSession } from "./diagnostics";
 import { startRtcStats, stopRtcStats } from "./rtcStats";
+import { applyJitterBufferTarget } from "./jitterBuffer";
 
 // MumbleClient 封装浏览器侧的全部网络逻辑：
 //  - WebSocket：控制信令 + WebRTC 信令
@@ -14,6 +15,7 @@ export class MumbleClient {
   private rtcTrack: MediaStreamTrack | null = null; // 增益链输出轨：发给 WebRTC，门控只作用于它
   private micEnabled = false; // 当前门控状态（换输入设备后恢复用）
   private micGain = 1; // 麦克风增益 0..2（UserBar 悬浮滑条调节）
+  private lowLatencyBuffer = true; // 低延迟接收缓冲（默认开，设置页可关）
 
   // 麦克风电平检测（VAD / 设置页电平条）与增益链
   private audioCtx: AudioContext | null = null;
@@ -83,8 +85,22 @@ export class MumbleClient {
   // 门控打在 gainDest 轨的 enabled 上，不影响 analyser 支路（VAD 不会死锁）。
   private ensureAudioGraph(): AudioContext {
     if (!this.audioCtx) {
-      this.audioCtx = new AudioContext();
+      try {
+        // Mumble/Opus 为 48kHz：固定采样率避免 44.1k↔48k 重采样；
+        // interactive 让浏览器用更小的渲染缓冲，降低采集链延迟
+        this.audioCtx = new AudioContext({
+          sampleRate: 48000,
+          latencyHint: "interactive",
+        });
+      } catch {
+        this.audioCtx = new AudioContext(); // 老浏览器不支持构造参数时回退
+      }
       void this.audioCtx.resume();
+      // 记录实际生效的采样率与基础延迟，供部署后确认
+      logEvent("audio-context", {
+        sampleRate: this.audioCtx.sampleRate,
+        baseLatency: this.audioCtx.baseLatency ?? 0,
+      });
       this.gainNode = this.audioCtx.createGain();
       this.gainNode.gain.value = this.micGain;
       this.gainDest = this.audioCtx.createMediaStreamDestination();
@@ -163,6 +179,8 @@ export class MumbleClient {
     };
 
     pc.ontrack = (ev) => {
+      // 新说话人动态加入时，新 receiver 也应用当前的低延迟缓冲设置
+      applyJitterBufferTarget(ev.receiver, this.lowLatencyBuffer);
       // track/stream id 形如 "mumble-<session>"；部分浏览器会重写 track.id，
       // 因此优先取 track.id，取不到再退化到 stream id
       const ids = [ev.track.id, ...(ev.streams ?? []).map((s) => s.id)];
@@ -224,6 +242,12 @@ export class MumbleClient {
   setMicGain(gain: number) {
     this.micGain = gain;
     if (this.gainNode) this.gainNode.gain.value = gain;
+  }
+
+  // 低延迟接收缓冲开关：记忆设置并对当前所有 receiver 即时生效
+  setLowLatencyBuffer(on: boolean) {
+    this.lowLatencyBuffer = on;
+    this.pc?.getReceivers().forEach((r) => applyJitterBufferTarget(r, on));
   }
 
   // 切换音频输入设备：只替换增益链的输入源，gainDest 输出轨不变，
