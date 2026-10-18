@@ -137,8 +137,8 @@ for (const width of [320, 375, 1280]) {
     await mockBackend(page);
     const settingsBtn = await enterMainUI(page);
 
-    // UserBar 五个按钮不裁切（离开语音按钮不越出工具条）
-    const userbar = settingsBtn.locator("..");
+    // UserBar 按钮不裁切（离开语音按钮不越出工具条；双行布局，容器是按钮行的祖父级）
+    const userbar = settingsBtn.locator("../..");
     const ubRect = await userbar.boundingBox();
     const leaveRect = await page
       .locator("button:has(svg.lucide-phone-off)")

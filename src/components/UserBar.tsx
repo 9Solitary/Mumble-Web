@@ -64,19 +64,26 @@ function BarButton({
 }
 
 // 悬浮音量面板：悬停在按钮上时向上弹出滑动条（pb-2 桥接间隙，移入面板不消失）
+// align="left"：靠屏幕左缘的按钮（如麦克风）面板与按钮左对齐，避免左半弹出屏幕外
 function HoverVolumePanel({
   label,
   value,
   max,
   onChange,
+  align = "center",
 }: {
   label: string;
   value: number;
   max: number;
   onChange: (v: number) => void;
+  align?: "left" | "center";
 }) {
   return (
-    <div className="absolute bottom-full left-1/2 -translate-x-1/2 hidden group-hover:block pb-2 z-50">
+    <div
+      className={`absolute bottom-full hidden group-hover:block pb-2 z-50 ${
+        align === "left" ? "left-0" : "left-1/2 -translate-x-1/2"
+      }`}
+    >
       <div className="w-40 rounded-md bg-[#111214] border border-[#3f4147] p-3 shadow-xl">
         <div className="flex items-center gap-1.5 text-xs text-[#b5bac1]">
           <span className="font-bold uppercase">{label}</span>
@@ -151,83 +158,90 @@ export function UserBar() {
 
   return (
     <TooltipProvider delayDuration={200}>
-      {/* 固定 240px：头像 36 + 5 按钮 28 + gap-1 + px-3，用户名 truncate 自适应剩余宽度 */}
-      <div className="h-[60px] w-60 bg-[#232428] px-3 flex items-center gap-1 shrink-0">
-        <UserAvatar name={self.name} size={36} talking={selfTalking} />
-        <div className="min-w-0 flex-1">
-          <div className="text-sm font-semibold text-white truncate">{self.name}</div>
-          <div className="text-[11px] text-[#949ba4] truncate">
-            {micError
-              ? micError
-              : !micReady
-                ? "麦克风初始化中…"
-                : selfTalking
-                  ? "正在发言"
-                  : pttMode === "ptt"
-                    ? "按住空格说话"
-                    : "自由发言中"}
+      {/* 双行布局：上行 头像+用户名+状态+设置；下行 PTT/静音/闭麦/离开语音 */}
+      <div className="w-60 bg-[#232428] px-3 py-2 flex flex-col gap-1 shrink-0">
+        <div className="flex items-center gap-2 h-9">
+          <UserAvatar name={self.name} size={36} talking={selfTalking} />
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-semibold text-white truncate">{self.name}</div>
+            <div className="text-[11px] text-[#949ba4] truncate">
+              {micError
+                ? micError
+                : !micReady
+                  ? "麦克风初始化中…"
+                  : selfTalking
+                    ? "正在发言"
+                    : pttMode === "ptt"
+                      ? "按住空格说话"
+                      : "自由发言中"}
+            </div>
+          </div>
+          <BarButton onClick={() => setSettingsOpen(true)} tooltip="设置">
+            <Settings className="w-4 h-4" />
+          </BarButton>
+        </div>
+
+        <div className="flex items-center gap-1">
+          {/* PTT 模式切换 */}
+          <BarButton
+            active={pttMode === "open"}
+            onClick={() => setPttMode(pttMode === "ptt" ? "open" : "ptt")}
+            tooltip={pttMode === "ptt" ? "切换为自由发言" : "切换为按键说话（空格）"}
+          >
+            {pttMode === "ptt" ? <Keyboard className="w-4 h-4" /> : <Radio className="w-4 h-4" />}
+          </BarButton>
+
+          <div className="relative group">
+            <BarButton
+              active={!selfMuted}
+              onClick={() => setSelfMute(!selfMuted)}
+            >
+              {selfMuted ? <MicOff className="w-4 h-4 text-[#fa777c]" /> : <Mic className="w-4 h-4" />}
+            </BarButton>
+            <HoverVolumePanel
+              label={selfMuted ? "麦克风音量（已静音）" : "麦克风音量"}
+              value={micGain}
+              max={2}
+              onChange={setMicGain}
+              align="left"
+            />
+          </div>
+
+          <div className="relative group">
+            <BarButton
+              active={!selfDeafened}
+              onClick={() => setSelfDeaf(!selfDeafened)}
+            >
+              {selfDeafened ? (
+                <HeadphoneOff className="w-4 h-4 text-[#fa777c]" />
+              ) : (
+                <Headphones className="w-4 h-4" />
+              )}
+            </BarButton>
+            <HoverVolumePanel
+              label={selfDeafened ? "耳机音量（已闭麦）" : "耳机音量"}
+              value={outputVolume}
+              max={1.5}
+              onChange={setOutputVolume}
+            />
+          </div>
+
+          {/* 离开语音：危险操作，与其他按钮分开右对齐 */}
+          <div className="ml-auto">
+            <BarButton
+              danger
+              disabled={self.channelId === rootChannelId}
+              onClick={leaveVoice}
+              tooltip={
+                self.channelId === rootChannelId
+                  ? "已在大厅"
+                  : "离开语音（回到大厅）"
+              }
+            >
+              <PhoneOff className="w-4 h-4" />
+            </BarButton>
           </div>
         </div>
-
-        {/* PTT 模式切换 */}
-        <BarButton
-          active={pttMode === "open"}
-          onClick={() => setPttMode(pttMode === "ptt" ? "open" : "ptt")}
-          tooltip={pttMode === "ptt" ? "切换为自由发言" : "切换为按键说话（空格）"}
-        >
-          {pttMode === "ptt" ? <Keyboard className="w-4 h-4" /> : <Radio className="w-4 h-4" />}
-        </BarButton>
-
-        <div className="relative group">
-          <BarButton
-            active={!selfMuted}
-            onClick={() => setSelfMute(!selfMuted)}
-          >
-            {selfMuted ? <MicOff className="w-4 h-4 text-[#fa777c]" /> : <Mic className="w-4 h-4" />}
-          </BarButton>
-          <HoverVolumePanel
-            label={selfMuted ? "麦克风音量（已静音）" : "麦克风音量"}
-            value={micGain}
-            max={2}
-            onChange={setMicGain}
-          />
-        </div>
-
-        <div className="relative group">
-          <BarButton
-            active={!selfDeafened}
-            onClick={() => setSelfDeaf(!selfDeafened)}
-          >
-            {selfDeafened ? (
-              <HeadphoneOff className="w-4 h-4 text-[#fa777c]" />
-            ) : (
-              <Headphones className="w-4 h-4" />
-            )}
-          </BarButton>
-          <HoverVolumePanel
-            label={selfDeafened ? "耳机音量（已闭麦）" : "耳机音量"}
-            value={outputVolume}
-            max={1.5}
-            onChange={setOutputVolume}
-          />
-        </div>
-
-        <BarButton onClick={() => setSettingsOpen(true)} tooltip="设置">
-          <Settings className="w-4 h-4" />
-        </BarButton>
-
-        <BarButton
-          danger
-          disabled={self.channelId === rootChannelId}
-          onClick={leaveVoice}
-          tooltip={
-            self.channelId === rootChannelId
-              ? "已在大厅"
-              : "离开语音（回到大厅）"
-          }
-        >
-          <PhoneOff className="w-4 h-4" />
-        </BarButton>
       </div>
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </TooltipProvider>
