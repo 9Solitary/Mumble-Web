@@ -478,6 +478,10 @@ func (c *Client) handleUserRemove(buffer []byte) error {
 			} else {
 				c.disconnectEvent.Type = DisconnectKicked
 			}
+			// 踢出/封禁原因同步到断开事件，便于 OnDisconnect 透出真实原因
+			if packet.Reason != nil {
+				c.disconnectEvent.String = *packet.Reason
+			}
 		}
 
 		c.volatile.Unlock()

@@ -17,6 +17,14 @@ import (
 	"mumbleweb/server/internal/mumbleconn"
 )
 
+// WS 心跳与写超时参数：
+// 浏览器自动回 pong，前端无需任何心跳代码。
+const (
+	wsPingPeriod   = 25 * time.Second // 服务端 Ping 周期（小于常见的 60s 空闲掐断阈值）
+	wsPongWait     = 90 * time.Second // 读死线：连续 90s 无任何消息（含 pong）判定断线
+	wsWriteTimeout = 10 * time.Second // 单次写超时
+)
+
 // Session 表示一个浏览器 WebSocket 连接对应的完整会话：
 // 一个 gumble.Client（Mumble 登录）+ 一个 WebRTC PeerConnection（语音）。
 type Session struct {
@@ -33,11 +41,16 @@ type Session struct {
 
 	invites     *invite.Store // 一次性邀请存储（nil 表示邀请功能未启用）
 	inviteToken string        // 本会话认领的邀请 token，会话结束时作废
+	resumeToken string        // 本会话持有的断线恢复凭据，用户主动退出时吊销
 
 	mu        sync.Mutex
 	client    *gumble.Client
 	rtc       *rtcPeer
 	connected bool
+
+	cleanupOnce sync.Once     // 保证清理只执行一次（WS 错误/Mumble 断开/主动退出可能并发触发）
+	wsMu        sync.Mutex    // 串行化 WS 写（writePump 与 closeWS 等控制帧写可能并发）
+	closeCode   atomic.Int32  // 非 0 时 writePump 排空发送队列后按此码发 WS 关闭帧
 
 	pttActive atomic.Bool
 	voiceSeq  int64
@@ -98,6 +111,12 @@ func (s *Session) Run() {
 	defer s.cleanup()
 	defer func() { s.recoverGo("run") }()
 
+	// WS 心跳：读死线靠 pong 刷新（浏览器对 Ping 控制帧自动回 Pong）
+	s.ws.SetReadDeadline(time.Now().Add(wsPongWait))
+	s.ws.SetPongHandler(func(string) error {
+		return s.ws.SetReadDeadline(time.Now().Add(wsPongWait))
+	})
+
 	s.logEvent("session_start", "remote", s.ws.RemoteAddr().String())
 	s.push(Envelope{
 		Type:    DownHello,
@@ -117,7 +136,7 @@ func (s *Session) Run() {
 	for {
 		var env Envelope
 		if err := s.ws.ReadJSON(&env); err != nil {
-			// 尽量提取 WS 关闭码，区分浏览器正常关闭与中间设备掐断
+			// 尽量提取 WS 关闭码，区分浏览器正常关闭与中间设备掐断/读超时
 			code := 0
 			closeText := ""
 			var ce *websocket.CloseError
@@ -141,38 +160,104 @@ func (s *Session) push(env Envelope) {
 	}
 }
 
+// writeJSON 串行化 WS 数据写（带写超时）。
+func (s *Session) writeJSON(env Envelope) error {
+	s.wsMu.Lock()
+	defer s.wsMu.Unlock()
+	_ = s.ws.SetWriteDeadline(time.Now().Add(wsWriteTimeout))
+	return s.ws.WriteJSON(env)
+}
+
 func (s *Session) writePump() {
 	defer func() { s.recoverGo("writePump") }()
+	ticker := time.NewTicker(wsPingPeriod)
+	defer ticker.Stop()
 	for {
 		select {
 		case env := <-s.send:
-			if err := s.ws.WriteJSON(env); err != nil {
+			if err := s.writeJSON(env); err != nil {
+				s.logEvent("ws_write_error", "error", err.Error())
+				s.cleanup()
+				return
+			}
+		case <-ticker.C:
+			s.wsMu.Lock()
+			_ = s.ws.SetWriteDeadline(time.Now().Add(wsWriteTimeout))
+			err := s.ws.WriteMessage(websocket.PingMessage, nil)
+			s.wsMu.Unlock()
+			if err != nil {
+				s.logEvent("ws_ping_error", "error", err.Error())
+				s.cleanup()
 				return
 			}
 		case <-s.done:
+			s.flushAndClose()
 			return
 		}
 	}
 }
 
+// flushAndClose 会话结束时排空发送队列（保证 disconnected 等收尾信封送达），
+// 若通过 requestClose 请求了关闭码则最后发送 WS 关闭帧。
+func (s *Session) flushAndClose() {
+	for {
+		select {
+		case env := <-s.send:
+			if err := s.writeJSON(env); err != nil {
+				return
+			}
+		default:
+			if code := s.closeCode.Load(); code != 0 {
+				s.wsMu.Lock()
+				_ = s.ws.WriteControl(websocket.CloseMessage,
+					websocket.FormatCloseMessage(int(code), ""), time.Now().Add(wsWriteTimeout))
+				s.wsMu.Unlock()
+			}
+			return
+		}
+	}
+}
+
+// requestClose 请求 writePump 在排空发送队列后以指定关闭码关闭 WS。
+// 用于 Mumble 上游异常断开（1011），让前端区分异常断开并触发重连。
+func (s *Session) requestClose(code int) {
+	s.closeCode.Store(int32(code))
+}
+
+// cleanup 幂等清理：关闭 rtc/上游连接、作废认领的邀请。
+// WS 读错误、Mumble 断开、前端主动 disconnect 三条路径可能并发触发，sync.Once 保证只执行一次。
+// 注意：resume token 不在此吊销——挂机断线后新会话还要凭它恢复；
+// 只有用户主动退出（UpDisconnect）才吊销。
 func (s *Session) cleanup() {
-	select {
-	case <-s.done:
-	default:
+	s.cleanupOnce.Do(func() {
 		close(s.done)
-	}
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if s.rtc != nil {
+			s.rtc.Close()
+			s.rtc = nil
+		}
+		if s.client != nil {
+			s.client.Disconnect()
+			s.client = nil
+		}
+		if s.inviteToken != "" && s.invites != nil {
+			// 会话结束（退出登录/断线）：一次性邀请立即作废
+			s.invites.Delete(s.inviteToken)
+			s.inviteToken = ""
+		}
+	})
+}
+
+// revokeResume 吊销本会话的断线恢复凭据（用户主动退出时调用）。
+func (s *Session) revokeResume() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.rtc != nil {
-		s.rtc.Close()
-	}
-	if s.client != nil {
-		s.client.Disconnect()
-	}
-	if s.inviteToken != "" && s.invites != nil {
-		// 会话结束（退出登录/断线）：一次性邀请立即作废
-		s.invites.Delete(s.inviteToken)
-		s.inviteToken = ""
+	token := s.resumeToken
+	s.resumeToken = ""
+	s.mu.Unlock()
+	if token != "" && s.invites != nil {
+		s.invites.RevokeResume(token)
+		s.logEvent("resume_revoked")
 	}
 }
 
@@ -262,6 +347,8 @@ func (s *Session) handle(env Envelope) {
 			}
 		}
 	case UpDisconnect:
+		// 用户主动退出：吊销恢复凭据后走正常清理，服务端不再额外动作
+		s.revokeResume()
 		s.cleanup()
 	}
 }
@@ -277,9 +364,25 @@ func (s *Session) withClient(f func(*gumble.Client)) {
 
 // ---- Mumble 连接 ----
 
-// handleConnect 分发 connect 命令：携带 inviteToken 时走一次性邀请通道，
-// 服务器/密码以服务端存储为准，忽略客户端提交的对应字段。
+// handleConnect 分发 connect 命令：
+//   - 携带 resumeToken：断线恢复，服务器/密码从恢复凭据存储还原（username 须与签发时一致）
+//   - 携带 inviteToken：一次性邀请通道，服务器/密码以服务端存储为准
+//   - 否则：用户名+密码常规登录
 func (s *Session) handleConnect(env Envelope) {
+	if env.ResumeToken != "" {
+		if s.invites == nil {
+			s.push(Envelope{Type: DownReject, Reason: "邀请功能未启用"})
+			return
+		}
+		rt, ok := s.invites.RedeemResume(env.ResumeToken, env.Username)
+		if !ok {
+			s.push(Envelope{Type: DownReject, Reason: "恢复凭据无效或已过期，请重新使用邀请链接"})
+			return
+		}
+		s.logEvent("resume_redeem", "username", rt.Username)
+		s.connectMumble(rt.Username, rt.Password, rt.ServerAddr, true, "")
+		return
+	}
 	if env.InviteToken == "" {
 		s.connectMumble(env.Username, env.Password, env.ServerAddr, false, "")
 		return
@@ -359,6 +462,21 @@ func (s *Session) connectMumble(username, password, serverAddr string, trusted b
 	s.connected = true
 	s.inviteToken = inviteToken
 	s.mu.Unlock()
+
+	// 凭据来自服务端存储（一次性邀请或恢复凭据）的登录：签发断线恢复凭据。
+	// Dial 返回时 OnConnect 已推送 connected/频道/用户/synced，
+	// 此处下发 resume_token 满足「在 synced 之后」的契约顺序。
+	if trusted && s.invites != nil {
+		if rt, err := s.invites.IssueResume(username, serverAddr, password); err == nil {
+			s.mu.Lock()
+			s.resumeToken = rt.Token
+			s.mu.Unlock()
+			s.push(Envelope{Type: DownResumeToken, Token: rt.Token, ExpiresAt: rt.ExpiresAt.Unix()})
+			s.logEvent("resume_issued")
+		} else {
+			s.logEvent("resume_issue_error", "error", err.Error())
+		}
+	}
 }
 
 // onVoicePacket 收到 Mumble 语音包（gumble 读协程调用，禁止阻塞）。
@@ -510,12 +628,24 @@ func (l *mumbleListener) OnConnect(e *gumble.ConnectEvent) {
 }
 
 func (l *mumbleListener) OnDisconnect(e *gumble.DisconnectEvent) {
+	s := l.s
+	if e.Type == gumble.DisconnectUser {
+		// 用户主动退出（前端 disconnect）触发的上游断开：会话本就在清理，不额外动作
+		s.logEvent("mumble_disconnect", "reason", "user_initiated")
+		return
+	}
 	reason := e.String
+	if reason == "" && e.Err != nil {
+		reason = e.Err.Error()
+	}
 	if reason == "" {
 		reason = "与服务器断开连接"
 	}
-	l.s.logEvent("mumble_disconnect", "reason", reason)
-	l.s.push(Envelope{Type: DownDisconnect, Reason: reason})
+	s.logEvent("mumble_disconnect", "reason", reason, "kind", gumble.ClassifyDisconnectError(e.Err))
+	s.push(Envelope{Type: DownDisconnect, Reason: reason})
+	// 契约：上游异常断开时以 1011 关闭 WS（先排空 disconnected 信封），前端据此触发自动重连
+	s.requestClose(websocket.CloseInternalServerErr)
+	s.cleanup()
 }
 
 func (l *mumbleListener) OnTextMessage(e *gumble.TextMessageEvent) {

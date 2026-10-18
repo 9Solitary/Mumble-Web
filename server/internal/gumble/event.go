@@ -54,6 +54,9 @@ type DisconnectEvent struct {
 	Type   DisconnectType
 
 	String string
+	// Err 是底层读循环退出的真实错误（读超时/TLS 错误/对端关闭等）；
+	// 用户主动 Disconnect() 时为 nil。
+	Err error
 }
 
 // TextMessageEvent is the event that is passed to EventListener.OnTextMessage.

@@ -124,6 +124,29 @@ chat.example.com {
 
 Caddy 会自动处理 WebSocket 升级与证书。UDP 50000 不经过反代，直接对公网放行。
 
+### 反向代理的 WebSocket 长连接配置
+
+代理服务端每 25s 向浏览器发一次 WS Ping 控制帧（浏览器自动回 Pong，前端无需改代码），
+因此反代/网关的空闲超时**不低于 60s 即可**，但建议放宽到 1 小时以减少干扰：
+
+```nginx
+# nginx 示例
+location / {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_read_timeout 3600s;   # WS 长连接读超时，低于 60s 会掐断心跳间隙
+    proxy_send_timeout 3600s;
+}
+```
+
+注意：
+
+- **Cloudflare**：免费/Pro 档 WS 空闲超时约 100s，不可调；服务端 25s 心跳可保活，无需额外配置。
+  若仍见 100s 左右规律断线，检查是否经过了其他不感知 WS 控制帧的中间层。
+- 任何把 `proxy_read_timeout` 调到 25s 以下的配置都会掐死空闲连接——心跳间隔是 25s。
+
 ---
 
 ## 7. 常见问题

@@ -3,6 +3,7 @@ package gumble
 import (
 	"crypto/tls"
 	"errors"
+	"io"
 	"math"
 	"net"
 	"runtime"
@@ -235,9 +236,12 @@ func (c *Client) readRoutine() {
 		Type:   DisconnectError,
 	}
 
+	// 读循环退出的真实错误，透出给 OnDisconnect（此前被吞掉，断线原因无从排查）
+	var readErr error
 	for {
 		pType, data, err := c.Conn.ReadPacket()
 		if err != nil {
+			readErr = err
 			break
 		}
 		if int(pType) < len(handlers) {
@@ -248,9 +252,41 @@ func (c *Client) readRoutine() {
 	wasSynced := c.State() == StateSynced
 	atomic.StoreUint32(&c.state, uint32(StateDisconnected))
 	close(c.end)
+	// 用户主动 Disconnect() 导致的读失败不算异常，Err 留空
+	if c.disconnectEvent.Type != DisconnectUser {
+		c.disconnectEvent.Err = readErr
+	}
 	if wasSynced {
 		c.Config.Listeners.onDisconnect(&c.disconnectEvent)
 	}
+}
+
+// ClassifyDisconnectError 把读循环的底层错误归类，用于日志与诊断：
+// timeout（读超时）/ closed（对端关闭或 EOF）/ tls（TLS 层错误）/ other / none。
+func ClassifyDisconnectError(err error) string {
+	switch {
+	case err == nil:
+		return "none"
+	case errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed):
+		return "closed"
+	case isTimeoutError(err):
+		return "timeout"
+	case isTLSError(err):
+		return "tls"
+	default:
+		return "other"
+	}
+}
+
+func isTimeoutError(err error) bool {
+	var ne net.Error
+	return errors.As(err, &ne) && ne.Timeout()
+}
+
+func isTLSError(err error) bool {
+	var recErr tls.RecordHeaderError
+	var certErr *tls.CertificateVerificationError
+	return errors.As(err, &recErr) || errors.As(err, &certErr)
 }
 
 // RequestUserList requests that the server's registered user list be sent to

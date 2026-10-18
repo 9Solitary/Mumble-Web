@@ -22,6 +22,7 @@ const (
 	DownRtcIce      = "rtcCandidate"
 	DownError       = "error"
 	DownConfig      = "config" // 服务器配置（消息长度限制等）
+	DownResumeToken = "resume_token" // 邀请/恢复登录成功后下发断线恢复凭据
 )
 
 // ---- 上行消息（browser -> proxy） ----
@@ -46,6 +47,7 @@ type Envelope struct {
 	Password    string `json:"password,omitempty"`
 	ServerAddr  string `json:"serverAddr,omitempty"`  // connect 时可选：覆盖代理默认上游服务器
 	InviteToken string `json:"inviteToken,omitempty"` // connect 时可选：一次性邀请 token（服务器/密码以服务端存储为准）
+	ResumeToken string `json:"resumeToken,omitempty"` // connect 时可选：断线恢复凭据（与 password/inviteToken 互斥）
 	Session    uint32 `json:"session,omitempty"`
 	ChannelID  uint32 `json:"channelId,omitempty"`
 	Message    string `json:"message,omitempty"`
@@ -57,6 +59,10 @@ type Envelope struct {
 	// hello 下发：会话标识与构建版本（诊断上报与日志按 sid+version 关联）
 	SID     string `json:"sid,omitempty"`
 	Version string `json:"version,omitempty"`
+
+	// resume_token 下发：断线恢复凭据与到期时间
+	Token     string `json:"token,omitempty"`
+	ExpiresAt int64  `json:"expiresAt,omitempty"`
 
 	// WebRTC 信令
 	SDP       string `json:"sdp,omitempty"`
