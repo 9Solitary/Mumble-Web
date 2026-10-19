@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { useAppStore } from "@/store/appStore";
 import {
   ContextMenu,
@@ -20,6 +21,7 @@ export function UserContextMenu({
   user: UserInfo;
   children: ReactNode;
 }) {
+  const { t } = useTranslation();
   const { self, volumes, setVolume, localMuted, toggleLocalMute } =
     useAppStore();
   if (self?.session === user.session) return <>{children}</>;
@@ -30,33 +32,34 @@ export function UserContextMenu({
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-      <ContextMenuContent className="w-64 bg-[#111214] border-[#3f4147] text-[#dbdee1]">
-        <div className="px-2 pt-2 pb-1">
-          <div className="flex items-center gap-2 text-xs text-[#b5bac1]">
-            <Volume2 className="w-4 h-4" />
-            <span className="font-bold uppercase truncate">
-              音量 · {user.name}
+      <ContextMenuContent className="w-64 border-line-control bg-ink-900 text-fg">
+        <div className="px-2 pb-1 pt-2">
+          <div className="flex items-center gap-2">
+            <Volume2 className="size-3.5 shrink-0 text-fg-muted" />
+            <span className="truncate text-[11px] font-medium text-fg">
+              {t("member.volume", { name: user.name })}
             </span>
           </div>
           <Slider
-            className="mt-3"
+            className="mt-2"
+            aria-label={t("member.volume", { name: user.name })}
             value={[volume * 100]}
             min={0}
             max={150}
-            step={5}
+            step={1}
             onValueChange={([v]) => setVolume(user.session, v / 100)}
           />
-          <div className="mt-1 text-right text-xs text-[#949ba4]">
+          <div className="mt-1 text-right font-mono text-[10.5px] text-fg-muted">
             {Math.round(volume * 100)}%
           </div>
         </div>
-        <ContextMenuSeparator className="bg-[#3f4147]" />
+        <ContextMenuSeparator className="bg-ink-700" />
         <ContextMenuCheckboxItem
           checked={muted}
           onCheckedChange={() => toggleLocalMute(user.session)}
-          className="focus:bg-[#35373c] focus:text-white"
+          className="focus:bg-ink-700 focus:text-fg"
         >
-          屏蔽此用户发言
+          {t("member.localMute")}
         </ContextMenuCheckboxItem>
       </ContextMenuContent>
     </ContextMenu>

@@ -69,6 +69,7 @@ export interface Envelope {
   mute?: boolean;
   deaf?: boolean;
   reason?: string;
+  code?: string; // reject/disconnected：稳定错误码，前端按 code 翻译
   sdp?: string;
   candidate?: string;
   sdpMid?: string;

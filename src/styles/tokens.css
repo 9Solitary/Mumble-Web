@@ -1,0 +1,98 @@
+/*
+ * 声场 / Soundfield — 设计令牌（暗色单主题）
+ *
+ * 这是全站颜色、字号、圆角、阴影、动效的唯一来源。
+ * 组件里不要再写十六进制色值；需要新值时先在这里加语义 token。
+ *
+ * 颜色用 RGB 三元组，搭配 Tailwind 的 `<alpha-value>`，
+ * 这样 `bg-mint/10`、`text-fg-muted/80` 这类透明度写法都能正常工作。
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* ---------- 表面：从最深到最亮 ---------- */
+  --ink-950: 8 13 18; /* #080D12 页面最底层、遮罩 */
+  --ink-900: 12 19 25; /* #0C1319 顶栏、频道栏、语音坞、弹窗 */
+  --ink-850: 16 25 34; /* #101922 聊天主表面 */
+  --ink-800: 20 32 43; /* #14202B 输入框、悬浮卡、hover */
+  --ink-700: 33 50 67; /* #213243 按下/选中底 */
+  --ink-600: 42 57 71; /* #2A3947 图片边框等中间层 */
+  --ink-500: 60 78 94; /* #3C4E5E 更亮的控件底 */
+
+  /* ---------- 文字 ---------- */
+  --fg: 233 241 248; /* #E9F1F8 主文字（对 ink-950 约 17:1） */
+  --fg-muted: 169 185 200; /* #A9B9C8 次要文字（约 9.7:1） */
+  --fg-subtle: 124 143 161; /* #7C8FA1 辅助/时间戳（约 5.9:1） */
+  --fg-disabled: 78 80 88; /* #4E5058 仅用于禁用态（不承担信息） */
+
+  /* ---------- 强调色 ---------- */
+  --mint: 79 227 193; /* #4FE3C1 主操作、当前、在线 */
+  --mint-strong: 123 240 216; /* #7BF0D8 主操作 hover */
+  --mint-deep: 47 159 136; /* #2F9F88 电平条渐变起点 */
+  --on-mint: 5 35 28; /* #05231C 薄荷底上的文字（约 10.3:1） */
+
+  --amber: 245 181 75; /* #F5B54B 正在发言、提醒 */
+  --amber-strong: 240 178 50; /* #F0B232 重连条 */
+  --amber-bright: 254 231 92; /* #FEE75C 优先发言 */
+  --amber-soft: 233 201 141; /* #E9C98D 琥珀色提示文字 */
+
+  --danger: 255 107 107; /* #FF6B6B 错误、危险 */
+  --danger-strong: 255 133 133; /* #FF8585 hover */
+  --danger-soft: 255 154 154; /* #FF9A9A 危险文字 */
+  --danger-muted: 201 154 154; /* #C99A9A 错误详情 */
+  --danger-surface: 58 34 38; /* #3A2226 危险菜单 hover 底 */
+  --on-danger: 42 10 10; /* #2A0A0A 危险实心按钮上的文字 */
+
+  --success: 111 220 154; /* #6FDC9A 成功 */
+  --success-bright: 87 242 135; /* #57F287 头像/装饰 */
+
+  /* ---------- 线条 ---------- */
+  --line-rgb: 214 232 248; /* 浅蓝白，用于低对比细线 */
+  --line-control: 85 112 134; /* #557086 控件边框，对 ink-850 约 3.4:1 */
+  --overlay: 4 9 12; /* #04090C 查看器/遮罩底 */
+
+  /* ---------- 头像色板（按名字哈希取色，不是状态色） ---------- */
+  --avatar-1: #5865f2;
+  --avatar-2: #57f287;
+  --avatar-3: #fee75c;
+  --avatar-4: #eb459e;
+  --avatar-5: #ed4245;
+  --avatar-6: #f47b3f;
+  --avatar-7: #1abc9c;
+  --avatar-8: #9b59b6;
+  --avatar-9: #3498db;
+  --avatar-10: #e91e63;
+
+  /* ---------- 字体 ---------- */
+  --font-sans: "Segoe UI Variable Text", "Segoe UI", "PingFang SC",
+    "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+  --font-mono: "Cascadia Mono", "Consolas", "SFMono-Regular", ui-monospace,
+    monospace;
+
+  /* ---------- 布局 ---------- */
+  --topbar-h: 56px;
+  --dock-h: 72px;
+  --dock-h-mobile: 64px;
+  --channel-w: 268px;
+  --channel-w-compact: 240px;
+  --member-w: 252px;
+
+  /* ---------- 圆角 ---------- */
+  --radius: 8px; /* shadcn 兼容基准 */
+  --radius-control: 8px;
+  --radius-panel: 12px;
+  --radius-dialog: 16px;
+  --radius-avatar: 12px;
+
+  /* ---------- 阴影 ---------- */
+  --shadow-panel: 0 1px 0 rgb(255 255 255 / 0.03), 0 10px 30px rgb(0 0 0 / 0.28);
+  --shadow-dialog: 0 30px 80px rgb(0 0 0 / 0.55);
+  --shadow-rail: inset 2px 0 0 rgb(var(--mint));
+
+  /* ---------- 动效 ---------- */
+  --duration-fast: 120ms;
+  --duration-base: 180ms;
+  --duration-sonar: 1.8s;
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+}

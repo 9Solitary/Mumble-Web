@@ -1,6 +1,6 @@
 import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { useAppStore } from "@/store/appStore";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Slider } from "@/components/ui/slider";
 import {
   Popover,
@@ -13,6 +13,7 @@ import { MicOff, HeadphoneOff, Volume2, VolumeX } from "lucide-react";
 import type { UserInfo } from "@/lib/protocol";
 
 function MemberRow({ user }: { user: UserInfo }) {
+  const { t } = useTranslation();
   const { self, talking, selfTalking, volumes, setVolume, remoteStreams, localMuted } =
     useAppStore();
   const isSelf = self?.session === user.session;
@@ -23,22 +24,24 @@ function MemberRow({ user }: { user: UserInfo }) {
   const locallyMuted = !!localMuted[user.session];
 
   const row = (
-    <div className="flex items-center gap-2.5 px-2 py-1.5 mx-1 rounded-md hover:bg-[#35373c] cursor-pointer">
+    <div className="flex items-center gap-2.5 px-2 py-1.5 mx-1 rounded-md hover:bg-ink-800 cursor-pointer">
       <UserAvatar name={user.name} size={32} talking={isTalking} muted={silenced} />
       <div className="min-w-0 flex-1">
-        <div className={`text-sm truncate ${silenced ? "text-[#6d6f78]" : "text-[#dbdee1]"}`}>
+        <div className={`text-sm truncate ${silenced ? "text-fg-subtle" : "text-fg"}`}>
           {user.name}
-          {isSelf && <span className="text-[#6d6f78] text-xs">（我）</span>}
+          {isSelf && (
+            <span className="text-fg-subtle text-xs">{t("member.self")}</span>
+          )}
         </div>
         {user.comment && (
-          <div className="text-[11px] text-[#6d6f78] truncate">{user.comment}</div>
+          <div className="text-[11px] text-fg-subtle truncate">{user.comment}</div>
         )}
       </div>
-      {locallyMuted && <VolumeX className="w-4 h-4 text-[#fa777c] shrink-0" />}
+      {locallyMuted && <VolumeX className="w-4 h-4 text-danger shrink-0" />}
       {(user.selfDeafened || user.deafened) && (
-        <HeadphoneOff className="w-4 h-4 text-[#fa777c] shrink-0" />
+        <HeadphoneOff className="w-4 h-4 text-danger shrink-0" />
       )}
-      {silenced && <MicOff className="w-4 h-4 text-[#fa777c] shrink-0" />}
+      {silenced && <MicOff className="w-4 h-4 text-danger shrink-0" />}
     </div>
   );
 
@@ -53,21 +56,24 @@ function MemberRow({ user }: { user: UserInfo }) {
       </UserContextMenu>
       <PopoverContent
           side="left"
-          className="w-56 bg-[#111214] border-[#3f4147] text-[#dbdee1]"
+          className="w-60 border-line-control bg-ink-900 text-fg"
         >
-          <div className="flex items-center gap-2 text-xs text-[#b5bac1]">
-            <Volume2 className="w-4 h-4" />
-            <span className="font-bold uppercase">音量 · {user.name}</span>
+          <div className="flex items-center gap-2">
+            <Volume2 className="size-3.5 shrink-0 text-fg-muted" />
+            <span className="truncate text-[11px] font-medium text-fg">
+              {t("member.volume", { name: user.name })}
+            </span>
           </div>
           <Slider
-            className="mt-3"
+            className="mt-2"
+            aria-label={t("member.volume", { name: user.name })}
             value={[volume * 100]}
             min={0}
             max={150}
-            step={5}
+            step={1}
             onValueChange={([v]) => setVolume(user.session, v / 100)}
           />
-          <div className="mt-1 text-right text-xs text-[#949ba4]">
+          <div className="mt-1 text-right font-mono text-[10.5px] text-fg-muted">
             {Math.round(volume * 100)}%
           </div>
         </PopoverContent>
@@ -76,6 +82,7 @@ function MemberRow({ user }: { user: UserInfo }) {
 }
 
 export function MemberList() {
+  const { t } = useTranslation();
   const { channels, users } = useAppStore();
 
   const groups = useMemo(() => {
@@ -88,19 +95,21 @@ export function MemberList() {
     // 只展示有用户的频道，按频道名排序
     return [...byChannel.entries()]
       .map(([cid, us]) => ({
-        name: channels[cid]?.name ?? `频道 ${cid}`,
+        name:
+          channels[cid]?.name ??
+          t("member.channelFallback", { cid: String(cid) }),
         users: us.sort((a, b) => a.name.localeCompare(b.name)),
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [channels, users]);
+  }, [channels, users, t]);
 
   return (
-    <div className="w-60 bg-[#2b2d31] shrink-0 hidden lg:flex flex-col">
-      <ScrollArea className="flex-1 min-h-0">
+    <div data-testid="member-list" className="hidden w-member shrink-0 flex-col border-l border-line bg-ink-900 min-[1180px]:flex">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
         <div className="py-3">
           {groups.map((g) => (
             <div key={g.name} className="mb-3">
-              <div className="px-3 pb-1 text-[11px] font-bold uppercase text-[#949ba4] tracking-wide truncate">
+              <div className="px-3 pb-1 text-micro font-semibold uppercase tracking-[0.1em] text-fg-subtle truncate">
                 {g.name} — {g.users.length}
               </div>
               {g.users.map((u) => (
@@ -109,7 +118,7 @@ export function MemberList() {
             </div>
           ))}
         </div>
-      </ScrollArea>
+      </div>
     </div>
   );
 }

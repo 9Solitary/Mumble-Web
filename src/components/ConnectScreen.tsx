@@ -1,17 +1,14 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { AlertCircle, ChevronDown, Link2, Loader2 } from "lucide-react";
+
 import { loadIdentity, useAppStore } from "@/store/appStore";
+import { clientErrorKey, knownErrorKey } from "@/lib/errorMessages";
+import { apiUrl } from "@/lib/backend";
 import { Button } from "@/components/ui/button";
+import { ConnectShell } from "@/components/ConnectShell";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Headphones, Loader2 } from "lucide-react";
-import { apiUrl } from "@/lib/backend";
 
 // "host:port" 拆分；无端口或非数字端口时整体作为 host
 function splitHostPort(addr: string): { host: string; port: string } {
@@ -23,7 +20,8 @@ function splitHostPort(addr: string): { host: string; port: string } {
 }
 
 export function ConnectScreen({ inviteToken }: { inviteToken?: string }) {
-  const { connState, error, connect } = useAppStore();
+  const { t } = useTranslation();
+  const { connState, error, endCode, connect } = useAppStore();
   const inviteMode = inviteToken != null;
   const [identity] = useState(loadIdentity);
   const [username, setUsername] = useState(identity.username ?? "");
@@ -31,7 +29,18 @@ export function ConnectScreen({ inviteToken }: { inviteToken?: string }) {
   const [host, setHost] = useState(() => splitHostPort(identity.serverAddr ?? "").host);
   const [port, setPort] = useState(() => splitHostPort(identity.serverAddr ?? "").port);
   const [defaultAddr, setDefaultAddr] = useState(""); // 代理默认上游（占位提示用）
+  const [serverOpen, setServerOpen] = useState(!identity.serverAddr);
   const connecting = connState === "connecting" || connState === "connected";
+  const knownKey = knownErrorKey(endCode);
+  // 客户端自己生成的错误（代理断开、缺少凭据等）是中文原始串，展示层映射；
+  // 服务端 code 已知时优先用 code，原始 reason 只进“详情”。
+  const clientKey = knownKey ? null : clientErrorKey(error);
+  const localizedError = knownKey ?? clientKey ?? (error ? "errors.generic" : null);
+  const showDetail =
+    !!error &&
+    !!localizedError &&
+    !clientKey &&
+    error !== t(localizedError);
 
   // 无本地记忆时，用代理当前配置预填服务器地址（邀请模式不展示服务器，无需预填）
   useEffect(() => {
@@ -47,6 +56,8 @@ export function ConnectScreen({ inviteToken }: { inviteToken?: string }) {
           const p = splitHostPort(addr);
           setHost(p.host);
           setPort(p.port);
+          // 代理已经给出默认服务器时，折叠服务器字段，短屏也能一屏放下。
+          setServerOpen(false);
         }
       })
       .catch(() => {
@@ -69,118 +80,157 @@ export function ConnectScreen({ inviteToken }: { inviteToken?: string }) {
     : "";
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-[#1e1f22] relative overflow-hidden">
-      {/* 背景装饰 */}
-      <div className="absolute inset-0 pointer-events-none">
-        <div className="absolute -top-40 -left-40 w-96 h-96 rounded-full bg-[#5865f2]/20 blur-[120px]" />
-        <div className="absolute -bottom-40 -right-40 w-96 h-96 rounded-full bg-[#23a55a]/15 blur-[120px]" />
+    <ConnectShell cardTestId="connect-card">
+      <div className="mb-5">
+        <h1 className="text-title font-semibold tracking-tight text-fg">
+          {inviteMode ? t("connect.inviteTitle") : t("connect.title")}
+        </h1>
+        <p className="mt-1.5 text-caption text-fg-muted">
+          {inviteMode ? t("connect.inviteDescription") : t("connect.description")}
+        </p>
       </div>
 
-      <Card className="w-[min(400px,calc(100vw-2rem))] bg-[#2b2d31] border-[#3f4147] text-[#dbdee1] relative z-10 shadow-2xl">
-        <CardHeader className="items-center text-center">
-          <div className="w-14 h-14 rounded-2xl bg-[#5865f2] flex items-center justify-center mb-2">
-            <Headphones className="w-8 h-8 text-white" />
+      {inviteMode && (
+        <div className="mb-4 flex items-start gap-2 rounded-control border border-line bg-ink-850 px-3 py-2 text-caption text-fg-muted">
+          <Link2 className="mt-0.5 size-3.5 shrink-0 text-mint" />
+          <span>{t("connect.inviteNotice")}</span>
+        </div>
+      )}
+
+      <form
+        className="space-y-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!username.trim() || (!inviteMode && portInvalid)) return;
+          if (inviteMode) connect(username.trim(), "", "", inviteToken);
+          else connect(username.trim(), password, serverAddr);
+        }}
+      >
+        <div className="space-y-1.5">
+          <Label htmlFor="username">
+            {t("connect.username")}
+            <span className="text-danger" aria-hidden="true">
+              *
+            </span>
+          </Label>
+          <Input
+            id="username"
+            data-testid="connect-username"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder={t("connect.usernamePlaceholder")}
+            autoFocus
+            required
+            autoComplete="username"
+            aria-describedby="username-hint"
+          />
+          <p id="username-hint" className="text-data text-fg-subtle">
+            {t("connect.usernameHint")}
+          </p>
+        </div>
+
+        {!inviteMode && (
+          <div className="space-y-1.5">
+            <Label htmlFor="password">{t("connect.passwordOptional")}</Label>
+            <Input
+              id="password"
+              data-testid="connect-password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder={t("connect.passwordPlaceholder")}
+              autoComplete="off"
+            />
           </div>
-          <CardTitle className="text-2xl text-white">Mumble Web</CardTitle>
-          <CardDescription className="text-[#b5bac1]">
-            {inviteMode
-              ? "你正通过邀请链接加入，服务器由邀请方指定"
-              : "连接到你的 Mumble 语音服务器"}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form
-            className="space-y-4"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (!username.trim() || (!inviteMode && portInvalid)) return;
-              if (inviteMode) connect(username.trim(), "", "", inviteToken);
-              else connect(username.trim(), password, serverAddr);
-            }}
+        )}
+
+        {!inviteMode && (
+          <details
+            className="group rounded-control border border-line bg-ink-850/60 px-3 py-2"
+            open={serverOpen}
+            onToggle={(e) => setServerOpen(e.currentTarget.open)}
           >
-            {!inviteMode && (
-            <div className="space-y-2">
-              <Label htmlFor="server" className="text-xs font-bold uppercase text-[#b5bac1]">
-                服务器地址 / 端口
-              </Label>
-              <div className="flex gap-2">
+            <summary className="flex cursor-pointer list-none select-none items-center justify-between gap-2 text-ui text-fg-muted hover:text-fg [&::-webkit-details-marker]:hidden">
+              <span>{t("connect.serverAdvanced")}</span>
+              <ChevronDown className="size-4 shrink-0 transition-transform duration-fast group-open:rotate-180" />
+            </summary>
+            <div className="mt-3 space-y-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="server">{t("connect.serverAddress")}</Label>
                 <Input
                   id="server"
                   value={host}
                   onChange={(e) => setHost(e.target.value)}
-                  placeholder={defaultAddr ? splitHostPort(defaultAddr).host : "代理默认服务器"}
-                  className="flex-1 bg-[#1e1f22] border-none text-[#dbdee1] placeholder:text-[#6d6f78] focus-visible:ring-[#5865f2]"
+                  placeholder={
+                    defaultAddr
+                      ? splitHostPort(defaultAddr).host
+                      : t("connect.serverPlaceholder")
+                  }
+                  autoComplete="off"
                 />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="port">{t("connect.serverPort")}</Label>
                 <Input
                   id="port"
                   value={port}
                   onChange={(e) => setPort(e.target.value)}
                   placeholder="64738"
                   inputMode="numeric"
-                  className={`w-24 bg-[#1e1f22] border-none text-[#dbdee1] placeholder:text-[#6d6f78] focus-visible:ring-[#5865f2] ${
-                    portInvalid ? "ring-1 ring-[#fa777c]" : ""
-                  }`}
+                  autoComplete="off"
+                  aria-invalid={portInvalid}
+                  aria-describedby="port-help"
+                  className="w-28"
                 />
               </div>
-              <p className="text-[11px] text-[#6d6f78]">
-                {portInvalid
-                  ? "端口需为 1-65535 的数字"
-                  : "留空则使用代理部署时配置的默认服务器"}
+              <p
+                id="port-help"
+                className={portInvalid ? "text-data text-danger" : "text-data text-fg-subtle"}
+              >
+                {portInvalid ? t("connect.portInvalid") : t("connect.serverHelp")}
               </p>
             </div>
-            )}
-            <div className="space-y-2">
-              <Label htmlFor="username" className="text-xs font-bold uppercase text-[#b5bac1]">
-                用户名 <span className="text-[#fa777c]">*</span>
-              </Label>
-              <Input
-                id="username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="你的昵称"
-                autoFocus
-                className="bg-[#1e1f22] border-none text-[#dbdee1] placeholder:text-[#6d6f78] focus-visible:ring-[#5865f2]"
-              />
-            </div>
-            {!inviteMode && (
-            <div className="space-y-2">
-              <Label htmlFor="password" className="text-xs font-bold uppercase text-[#b5bac1]">
-                服务器密码
-              </Label>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="如服务器设有密码请填写"
-                className="bg-[#1e1f22] border-none text-[#dbdee1] placeholder:text-[#6d6f78] focus-visible:ring-[#5865f2]"
-              />
-            </div>
-            )}
+          </details>
+        )}
 
-            {error && (
-              <div className="rounded-md bg-[#fa777c]/10 border border-[#fa777c]/30 px-3 py-2 text-sm text-[#fa777c]">
-                {error}
-              </div>
+        {error && localizedError && (
+          <div
+            role="alert"
+            data-testid="connect-error"
+            className="rounded-control border border-danger/30 bg-danger/10 px-3 py-2.5 text-caption text-danger"
+          >
+            <div className="flex items-start gap-2">
+              <AlertCircle className="mt-0.5 size-4 shrink-0" />
+              <p className="min-w-0">{t(localizedError)}</p>
+            </div>
+            {showDetail && (
+              <details className="mt-1.5 pl-6 text-data text-danger-muted">
+                <summary className="cursor-pointer select-none">
+                  {t("common.details")}
+                </summary>
+                <p className="mt-1 break-words font-mono leading-relaxed">{error}</p>
+              </details>
             )}
+          </div>
+        )}
 
-            <Button
-              type="submit"
-              disabled={!username.trim() || connecting || portInvalid}
-              className="w-full bg-[#5865f2] hover:bg-[#4752c4] text-white font-medium"
-            >
-              {connecting ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  连接中…
-                </>
-              ) : (
-                "连 接"
-              )}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
-    </div>
+        <Button
+          type="submit"
+          size="lg"
+          data-testid="connect-submit"
+          disabled={!username.trim() || connecting || portInvalid}
+          className="w-full"
+        >
+          {connecting ? (
+            <>
+              <Loader2 className="size-4 animate-spin" />
+              {t("connect.connecting")}
+            </>
+          ) : (
+            t("connect.submit")
+          )}
+        </Button>
+      </form>
+    </ConnectShell>
   );
 }

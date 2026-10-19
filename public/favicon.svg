@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Mumble Web">
+  <rect width="32" height="32" rx="9" fill="#0C1319"/>
+  <rect x="0.5" y="0.5" width="31" height="31" rx="8.5" fill="none" stroke="#557086" stroke-opacity="0.55"/>
+  <rect x="5" y="12.4" width="3.2" height="7.2" rx="1.6" fill="#4FE3C1"/>
+  <rect x="10.2" y="7.2" width="3.2" height="17.6" rx="1.6" fill="#4FE3C1"/>
+  <rect x="15.4" y="10.2" width="3.2" height="11.6" rx="1.6" fill="#7BF0D8"/>
+  <rect x="20.6" y="13.6" width="3.2" height="4.8" rx="1.6" fill="#4FE3C1" fill-opacity="0.55"/>
+</svg>

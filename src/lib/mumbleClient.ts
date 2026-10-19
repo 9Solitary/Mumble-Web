@@ -28,7 +28,7 @@ export class MumbleClient {
 
   onMessage: ClientEventHandler = () => {};
   onOpen: () => void = () => {};
-  onClose: () => void = () => {};
+  onClose: (code?: number) => void = () => {};
   onRemoteTrack: (session: number, stream: MediaStream) => void = () => {};
   onRemoteTrackEnded: (session: number) => void = () => {};
   onMicReady: () => void = () => {};
@@ -56,7 +56,7 @@ export class MumbleClient {
         reason: ev.reason ?? "",
         wasClean: ev.wasClean,
       });
-      this.onClose();
+      this.onClose(ev.code);
     };
     this.ws = ws;
   }
@@ -81,8 +81,9 @@ export class MumbleClient {
   }
 
   // 常驻增益链：micSource -> gainNode -> gainDest（rtcTrack 取自 gainDest）。
-  // 换输入设备只替换 micSource，sender 绑定的 gainDest 轨不变，无需重协商；
-  // 门控打在 gainDest 轨的 enabled 上，不影响 analyser 支路（VAD 不会死锁）。
+  // analyser 接在 gainNode 之后：电平表、VAD 阈值、实际发送使用同一电平，
+  // 调麦克风增益时三者一起变化（所见即所得）。
+  // 换输入设备只替换 micSource，sender 绑定的 gainDest 轨不变，无需重协商。
   private ensureAudioGraph(): AudioContext {
     if (!this.audioCtx) {
       try {
@@ -104,7 +105,11 @@ export class MumbleClient {
       this.gainNode = this.audioCtx.createGain();
       this.gainNode.gain.value = this.micGain;
       this.gainDest = this.audioCtx.createMediaStreamDestination();
+      this.analyser = this.audioCtx.createAnalyser();
+      this.analyser.fftSize = 512;
+      this.analyserBuf = new Float32Array(this.analyser.fftSize);
       this.gainNode.connect(this.gainDest);
+      this.gainNode.connect(this.analyser);
     }
     return this.audioCtx;
   }
@@ -114,18 +119,13 @@ export class MumbleClient {
       const ctx = this.ensureAudioGraph();
       this.micSource?.disconnect();
       this.micSource = ctx.createMediaStreamSource(stream);
-      this.analyser = ctx.createAnalyser();
-      this.analyser.fftSize = 512;
-      this.micSource.connect(this.analyser);
       this.micSource.connect(this.gainNode!);
-      this.analyserBuf = new Float32Array(this.analyser.fftSize);
     } catch {
-      this.analyser = null;
-      this.analyserBuf = null;
+      this.micSource = null;
     }
   }
 
-  // 麦克风实时电平（时域 RMS，约 0~1）
+  // 麦克风实时电平（增益后时域 RMS，约 0~1）
   getMicLevel(): number {
     if (!this.analyser || !this.analyserBuf) return 0;
     this.analyser.getFloatTimeDomainData(this.analyserBuf);
@@ -148,7 +148,7 @@ export class MumbleClient {
           name: e instanceof Error ? e.name : "",
           message: e instanceof Error ? e.message : String(e),
         });
-        this.onMicError(`无法访问麦克风: ${e instanceof Error ? e.message : e}`);
+        this.onMicError(`mic_access: ${e instanceof Error ? e.message : e}`);
         return;
       }
     }
@@ -265,7 +265,7 @@ export class MumbleClient {
         message: e instanceof Error ? e.message : String(e),
       });
       this.onMicError(
-        `切换输入设备失败: ${e instanceof Error ? e.message : e}`,
+        `mic_switch: ${e instanceof Error ? e.message : e}`,
       );
       return;
     }

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useAppStore } from "./appStore";
+import { CLIENT_ERROR_CODES } from "@/lib/errorMessages";
 import type { Envelope } from "@/lib/protocol";
 
 // appStore 重连状态机单测：mock WebSocket 模拟代理行为。
@@ -139,7 +140,7 @@ describe("appStore 重连状态机", () => {
     }
     const s = useAppStore.getState();
     expect(s.connState).toBe("failed");
-    expect(s.error).toContain("自动重连失败");
+    expect(s.error).toBe(CLIENT_ERROR_CODES.reconnectFailed);
     expect(MockWS.instances).toHaveLength(11); // 首次连接 + 10 次重试
   });
 
@@ -187,5 +188,130 @@ describe("appStore 重连状态机", () => {
     const saved = JSON.parse(localStorage.getItem("mumble-web.settings") ?? "{}");
     expect(saved.lowLatencyBuffer).toBe(false);
     useAppStore.getState().setLowLatencyBuffer(true); // 还原默认值
+  });
+
+  it("阈值 0 是自动门控：静音不亮、说话才亮", async () => {
+    useAppStore.getState().connect("alice", "pw123");
+    await login(MockWS.instances[0]);
+
+    const client = useAppStore.getState().client;
+    const level = vi.spyOn(client, "getMicLevel").mockReturnValue(0);
+    client.onMicReady();
+    await vi.advanceTimersByTimeAsync(200);
+    expect(useAppStore.getState().vadThreshold).toBe(0);
+    expect(useAppStore.getState().selfTalking).toBe(false);
+
+    level.mockReturnValue(0.2);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(useAppStore.getState().selfTalking).toBe(true);
+
+    level.mockReturnValue(0);
+    await vi.advanceTimersByTimeAsync(600);
+    expect(useAppStore.getState().selfTalking).toBe(false);
+  });
+
+  it("4001 关闭兜底：即使 disconnected 信封丢失也停在终止态", async () => {
+    useAppStore.getState().connect("alice", "pw123");
+    const ws1 = MockWS.instances[0];
+    await login(ws1);
+
+    ws1.drop(4001);
+    expect(useAppStore.getState().connState).toBe("ended");
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(MockWS.instances).toHaveLength(1);
+  });
+
+  it("被顶号：进入 ended，不再自动重连", async () => {
+    useAppStore.getState().connect("alice", "pw123");
+    const ws1 = MockWS.instances[0];
+    await login(ws1);
+
+    ws1.deliver({
+      type: "disconnected",
+      reason: "another session signed in with this name",
+      code: "session_takeover",
+    });
+    const state = useAppStore.getState();
+    expect(state.connState).toBe("ended");
+    expect(state.endCode).toBe("session_takeover");
+    expect(state.selfTalking).toBe(false);
+
+    // 关闭 WS 也不应再发起重连
+    ws1.drop(4001);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(MockWS.instances).toHaveLength(1);
+    expect(useAppStore.getState().connState).toBe("ended");
+  });
+
+  it("被踢：进入 ended，不自动重连", async () => {
+    useAppStore.getState().connect("alice", "pw123");
+    await login(MockWS.instances[0]);
+
+    MockWS.instances[0].deliver({
+      type: "disconnected",
+      reason: "kicked",
+      code: "kicked",
+    });
+    expect(useAppStore.getState().connState).toBe("ended");
+    expect(useAppStore.getState().endCode).toBe("kicked");
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(MockWS.instances).toHaveLength(1);
+  });
+
+  it("抖动保护：60s 内 3 次短连接后停止重连", async () => {
+    useAppStore.getState().connect("alice", "pw123");
+    await login(MockWS.instances[0]);
+
+    for (let i = 0; i < 3; i++) {
+      MockWS.instances[MockWS.instances.length - 1].drop(1006);
+      if (i === 2) break;
+      await vi.advanceTimersByTimeAsync(2000);
+      const next = MockWS.instances[MockWS.instances.length - 1];
+      await flush();
+      next.deliver(HELLO);
+      next.deliver(CONNECTED);
+      next.deliver(SYNCED);
+      await flush();
+      expect(useAppStore.getState().connState).toBe("ready");
+    }
+
+    const state = useAppStore.getState();
+    expect(state.connState).toBe("ended");
+    expect(state.endCode).toBe("flap_guard");
+    const count = MockWS.instances.length;
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(MockWS.instances).toHaveLength(count);
+  });
+
+  it("终止页：重新进入复用凭据，换个昵称回到 idle", async () => {
+    useAppStore.getState().connect("alice", "pw123");
+    await login(MockWS.instances[0]);
+    MockWS.instances[0].deliver({
+      type: "disconnected",
+      reason: "taken over",
+      code: "session_takeover",
+    });
+    expect(useAppStore.getState().connState).toBe("ended");
+
+    useAppStore.getState().retryAfterEnd();
+    await flush();
+    expect(useAppStore.getState().connState).toBe("connecting");
+    expect(MockWS.instances).toHaveLength(2);
+    expect(MockWS.instances[1].lastSent()).toMatchObject({
+      type: "connect",
+      username: "alice",
+      password: "pw123",
+    });
+
+    // 再次进入 terminated，然后换昵称
+    MockWS.instances[1].deliver({
+      type: "disconnected",
+      reason: "taken over",
+      code: "session_takeover",
+    });
+    useAppStore.getState().returnToConnect();
+    expect(useAppStore.getState().connState).toBe("idle");
+    expect(useAppStore.getState().endCode).toBe("");
   });
 });

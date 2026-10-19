@@ -1,6 +1,6 @@
 import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { useAppStore } from "@/store/appStore";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { UserAvatar } from "./UserAvatar";
 import { UserContextMenu } from "./UserContextMenu";
 import { Volume2, VolumeX, MicOff, HeadphoneOff, Crown, ChevronRight } from "lucide-react";
@@ -16,21 +16,21 @@ function VoiceUserRow({ user }: { user: UserInfo }) {
   const silenced = user.selfMuted || user.muted || user.suppressed;
   return (
     <UserContextMenu user={user}>
-      <div className="flex items-center gap-2 pl-8 pr-3 py-1 rounded-md mx-1 hover:bg-[#35373c] cursor-default group">
+      <div className="flex items-center gap-2 pl-8 pr-3 py-1 rounded-md mx-1 hover:bg-ink-800 cursor-default group">
         <UserAvatar name={user.name} size={24} talking={talking} muted={silenced} />
         <span
           className={`text-sm truncate flex-1 ${
-            talking ? "text-white" : silenced ? "text-[#6d6f78]" : "text-[#b5bac1]"
+            talking ? "text-fg" : silenced ? "text-fg-subtle" : "text-fg-muted"
           }`}
         >
           {user.name}
         </span>
-        {user.prioritySpeaker && <Crown className="w-3.5 h-3.5 text-[#fee75c]" />}
-        {locallyMuted && <VolumeX className="w-3.5 h-3.5 text-[#fa777c]" />}
+        {user.prioritySpeaker && <Crown className="w-3.5 h-3.5 text-amber-bright" />}
+        {locallyMuted && <VolumeX className="w-3.5 h-3.5 text-danger" />}
         {(user.selfDeafened || user.deafened) && (
-          <HeadphoneOff className="w-3.5 h-3.5 text-[#fa777c]" />
+          <HeadphoneOff className="w-3.5 h-3.5 text-danger" />
         )}
-        {silenced && <MicOff className="w-3.5 h-3.5 text-[#fa777c]" />}
+        {silenced && <MicOff className="w-3.5 h-3.5 text-danger" />}
       </div>
     </UserContextMenu>
   );
@@ -41,12 +41,15 @@ function ChannelNode({
   childrenMap,
   usersByChannel,
   depth,
+  onNavigate,
 }: {
   channel: ChannelInfo;
   childrenMap: Map<number, ChannelInfo[]>;
   usersByChannel: Map<number, UserInfo[]>;
   depth: number;
+  onNavigate?: () => void;
 }) {
+  const { t } = useTranslation();
   const { self, selectedChannelId, selectChannel, joinChannel } = useAppStore();
   const occupants = usersByChannel.get(channel.id) ?? [];
   const isSelfHere = self?.channelId === channel.id;
@@ -56,13 +59,22 @@ function ChannelNode({
   return (
     <div>
       <button
-        onClick={() => selectChannel(channel.id)}
-        onDoubleClick={() => joinChannel(channel.id)}
+        onClick={() => {
+          selectChannel(channel.id);
+        }}
+        onDoubleClick={() => {
+          joinChannel(channel.id);
+          onNavigate?.();
+        }}
         className={`w-full flex items-center gap-1.5 px-2 py-1.5 mx-1 rounded-md text-left group transition-colors select-none ${
-          isSelected ? "bg-[#404249] text-white" : "text-[#949ba4] hover:bg-[#35373c] hover:text-[#dbdee1]"
+          isSelected ? "bg-mint/10 text-fg shadow-rail" : "text-fg-subtle hover:bg-ink-800 hover:text-fg"
         }`}
         style={{ width: "calc(100% - 8px)", paddingLeft: `${8 + depth * 12}px` }}
-        title={`${channel.description || channel.name}（双击加入语音）`}
+        title={t("shell.channelTitle", {
+          name: channel.description || channel.name,
+        })}
+        data-testid={`channel-${channel.id}`}
+        aria-current={isSelfHere ? "true" : undefined}
       >
         {children.length > 0 ? (
           <ChevronRight className="w-3 h-3 shrink-0 opacity-60" />
@@ -70,11 +82,11 @@ function ChannelNode({
           <span className="w-3" />
         )}
         <Volume2 className="w-4 h-4 shrink-0 opacity-70" />
-        <span className={`text-sm truncate flex-1 ${isSelfHere ? "font-semibold" : ""}`}>
+        <span className={`flex-1 truncate text-ui ${isSelfHere ? "font-semibold" : ""}`}>
           {channel.name}
         </span>
         {occupants.length > 0 && (
-          <span className="text-xs text-[#6d6f78]">{occupants.length}</span>
+          <span className="text-data text-fg-subtle">{occupants.length}</span>
         )}
       </button>
       {occupants.map((u) => (
@@ -87,14 +99,16 @@ function ChannelNode({
           childrenMap={childrenMap}
           usersByChannel={usersByChannel}
           depth={depth + 1}
+          onNavigate={onNavigate}
         />
       ))}
     </div>
   );
 }
 
-export function ChannelSidebar() {
-  const { channels, users, server } = useAppStore();
+export function ChannelSidebar({ onNavigate }: { onNavigate?: () => void }) {
+  const { t } = useTranslation();
+  const { channels, users } = useAppStore();
 
   const { childrenMap, usersByChannel, roots } = useMemo(() => {
     const all = Object.values(channels).sort((a, b) => a.position - b.position || a.id - b.id);
@@ -122,16 +136,14 @@ export function ChannelSidebar() {
   const topLevel = rootChannel ? (childrenMap.get(rootChannel.id) ?? []) : [];
 
   return (
-    <div className="w-60 h-full bg-[#2b2d31] flex flex-col shrink-0">
-      <div className="h-12 px-4 flex items-center border-b border-[#1e1f22] shadow-sm">
-        <h1 className="font-bold text-white text-sm truncate">
-          {rootChannel?.name || server?.address || "Mumble 服务器"}
-        </h1>
-      </div>
-      <ScrollArea className="flex-1 min-h-0">
-        <div className="py-2 pr-1">
-          <div className="px-3 pb-1 text-[11px] font-bold uppercase text-[#949ba4] tracking-wide">
-            语音频道
+    <div
+      data-testid="channel-sidebar"
+      className="flex h-full w-full min-w-0 shrink-0 flex-col bg-ink-900"
+    >
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        <div className="py-3 pr-1">
+          <div className="px-3 pb-1.5 text-micro font-semibold uppercase tracking-[0.12em] text-fg-subtle">
+            {t("shell.voiceChannels")}
           </div>
           {rootChannel && (
             <>
@@ -141,6 +153,7 @@ export function ChannelSidebar() {
                 childrenMap={new Map()}
                 usersByChannel={usersByChannel}
                 depth={0}
+                onNavigate={onNavigate}
               />
               {topLevel.map((ch) => (
                 <ChannelNode
@@ -149,12 +162,13 @@ export function ChannelSidebar() {
                   childrenMap={childrenMap}
                   usersByChannel={usersByChannel}
                   depth={0}
+                  onNavigate={onNavigate}
                 />
               ))}
             </>
           )}
         </div>
-      </ScrollArea>
+      </div>
     </div>
   );
 }

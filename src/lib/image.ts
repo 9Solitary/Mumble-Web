@@ -6,7 +6,7 @@ function blobToDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
     r.onload = () => resolve(r.result as string);
-    r.onerror = () => reject(r.error ?? new Error("读取文件失败"));
+    r.onerror = () => reject(r.error ?? new Error("image_read_failed"));
     r.readAsDataURL(blob);
   });
 }
@@ -15,7 +15,7 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error("图片解码失败"));
+    img.onerror = () => reject(new Error("image_decode_failed"));
     img.src = src;
   });
 }
@@ -53,5 +53,5 @@ export async function imageToMessageDataUrl(
     const jpg = scaleToDataUrl(img, scale, "image/jpeg", 0.8);
     if (jpg.length <= charBudget) return jpg;
   }
-  throw new Error("图片过大，压缩后仍超出服务器消息长度限制");
+  throw new Error("image_too_large");
 }

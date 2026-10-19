@@ -1,8 +1,9 @@
 // 以用户名哈希生成稳定配色的字母头像
+// 色值定义在 tokens.css，这里只保存引用顺序。
 const PALETTE = [
-  "#5865f2", "#57f287", "#fee75c", "#eb459e",
-  "#ed4245", "#f47b3f", "#1abc9c", "#9b59b6",
-  "#3498db", "#e91e63",
+  "var(--avatar-1)", "var(--avatar-2)", "var(--avatar-3)", "var(--avatar-4)",
+  "var(--avatar-5)", "var(--avatar-6)", "var(--avatar-7)", "var(--avatar-8)",
+  "var(--avatar-9)", "var(--avatar-10)",
 ];
 
 function avatarColor(name: string): string {
@@ -24,8 +25,8 @@ export function UserAvatar({
 }) {
   return (
     <div
-      className={`rounded-full flex items-center justify-center font-semibold text-white shrink-0 transition-shadow ${
-        talking ? "ring-2 ring-[#23a55a]" : ""
+      className={`rounded-full flex items-center justify-center font-semibold text-fg shrink-0 transition-shadow ${
+        talking ? "ring-2 ring-amber" : ""
       } ${muted ? "opacity-50" : ""}`}
       style={{
         width: size,
