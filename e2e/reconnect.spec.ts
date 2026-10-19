@@ -80,8 +80,8 @@ test("WS 异常断开后自动重连并重放 connect", async ({ page }) => {
   // 登录进入主界面
   await page.goto("/");
   await page.getByLabel(/用户名/).fill("重连测试用户");
-  await page.getByRole("button", { name: "连 接" }).click();
-  await expect(page.locator("button:has(svg.lucide-settings)")).toBeVisible();
+  await page.getByTestId("connect-submit").click();
+  await expect(page.locator("button:has(svg.lucide-settings):visible")).toBeVisible();
   await conns[0].ready;
 
   // 服务端以 1011 异常断开（契约 4：上游 Mumble 断开）
@@ -104,5 +104,5 @@ test("WS 异常断开后自动重连并重放 connect", async ({ page }) => {
 
   // 重连成功后提示条消失，回到主界面
   await expect(banner).toBeHidden();
-  await expect(page.locator("button:has(svg.lucide-settings)")).toBeVisible();
+  await expect(page.locator("button:has(svg.lucide-settings):visible")).toBeVisible();
 });

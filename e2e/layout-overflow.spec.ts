@@ -109,8 +109,8 @@ async function mockBackend(page: Page) {
 async function enterMainUI(page: Page) {
   await page.goto("/");
   await page.getByLabel(/用户名/).fill("布局测试用户");
-  await page.getByRole("button", { name: "连 接" }).click();
-  const settingsBtn = page.locator("button:has(svg.lucide-settings)");
+  await page.getByTestId("connect-submit").click();
+  const settingsBtn = page.locator("button:has(svg.lucide-settings):visible");
   await expect(settingsBtn).toBeVisible();
   return settingsBtn;
 }
@@ -130,6 +130,29 @@ function expectInside(inner: Rect, outer: Rect, what: string) {
   );
 }
 
+test("悬停音量面板不越出屏幕（320px）", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 700 });
+  await mockBackend(page);
+  await enterMainUI(page);
+
+  const viewport: Rect = { x: 0, y: 0, width: 320, height: 700 };
+  for (const [name, icon] of [
+    ["输入音量", "svg.lucide-mic"],
+    ["输出音量", "svg.lucide-headphones"],
+  ]) {
+    await page.locator(`button:has(${icon})`).last().hover();
+    await page.waitForTimeout(200);
+    const panel = page.locator("div.absolute.bottom-full").filter({ visible: true }).first();
+    const rect = await panel.boundingBox();
+    expect(rect, `${name}面板不可见`).not.toBeNull();
+    expectInside(rect!, viewport, `悬停${name}面板`);
+
+    // 鼠标移到滑条上时面板不能消失（旧问题：tooltip 挡住滑条并触发 mouseleave）
+    await panel.locator('[data-slot="slider"]').hover();
+    await expect(panel).toBeVisible();
+  }
+});
+
 for (const width of [320, 375, 1280]) {
   test(`设置弹窗：长设备名不出框（视口 ${width}px）`, async ({ page }) => {
     await page.setViewportSize({ width, height: 800 });
@@ -137,15 +160,17 @@ for (const width of [320, 375, 1280]) {
     await mockBackend(page);
     const settingsBtn = await enterMainUI(page);
 
-    // UserBar 按钮不裁切（离开语音按钮不越出工具条；双行布局，容器是按钮行的祖父级）
-    const userbar = settingsBtn.locator("../..");
-    const ubRect = await userbar.boundingBox();
+    // 离开按钮不裁切：手机用底部坞，桌面用左侧语音卡
+    const bar = (await page.getByTestId("voice-dock").isVisible())
+      ? page.getByTestId("voice-dock")
+      : page.getByTestId("voice-panel");
+    const barRect = await bar.boundingBox();
     const leaveRect = await page
-      .locator("button:has(svg.lucide-phone-off)")
+      .locator("button:has(svg.lucide-phone-off):visible")
       .boundingBox();
-    expect(ubRect).not.toBeNull();
+    expect(barRect).not.toBeNull();
     expect(leaveRect).not.toBeNull();
-    expectInside(leaveRect!, ubRect!, "UserBar 离开按钮");
+    expectInside(leaveRect!, barRect!, "离开语音按钮");
 
     // 打开设置弹窗，等动画落定
     await settingsBtn.click();
@@ -213,8 +238,8 @@ for (const width of [320, 375, 1280]) {
 test("连接页卡片在 320px 视口不出框", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 700 });
   await page.goto("/");
-  await expect(page.getByRole("button", { name: "连 接" })).toBeVisible();
-  const card = page.locator("[data-slot=card]");
+  await expect(page.getByTestId("connect-submit")).toBeVisible();
+  const card = page.getByTestId("connect-card");
   const r = (await card.boundingBox())!;
   expect(r.x, "卡片左缘越界").toBeGreaterThanOrEqual(0);
   expect(r.x + r.width, "卡片右缘越出视口").toBeLessThanOrEqual(320);
@@ -236,7 +261,7 @@ test("邀请失效页卡片在 320px 视口不出框", async ({ page }) => {
   );
   await page.goto("/invite/fake-token");
   await expect(page.getByText("邀请链接已失效")).toBeVisible();
-  const card = page.locator("[data-slot=card]");
+  const card = page.getByTestId("invite-invalid-card");
   const r = (await card.boundingBox())!;
   expect(r.x, "卡片左缘越界").toBeGreaterThanOrEqual(0);
   expect(r.x + r.width, "卡片右缘越出视口").toBeLessThanOrEqual(320);

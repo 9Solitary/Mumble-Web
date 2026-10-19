@@ -8,6 +8,8 @@ export default defineConfig({
   retries: 0,
   use: {
     baseURL: "http://localhost:3000",
+    // 现有回归按中文界面编写；英文回归在 e2e/i18n.spec.ts 用 ?lang=en 或独立 locale。
+    locale: "zh-CN",
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: {

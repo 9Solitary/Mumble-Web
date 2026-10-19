@@ -4,9 +4,9 @@ import { expect, test } from "@playwright/test";
 test("首页显示连接界面", async ({ page }) => {
   await page.goto("/");
   await expect(page).toHaveTitle(/Mumble Web/);
-  await expect(page.getByText("Mumble Web")).toBeVisible();
+  await expect(page.getByTestId("connect-card")).toBeVisible();
   await expect(page.getByLabel(/用户名/)).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "连 接" }),
+    page.getByTestId("connect-submit"),
   ).toBeVisible();
 });
