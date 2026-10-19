@@ -52,6 +52,20 @@ func main() {
 		},
 	})))
 
+	// 直接运行 proxy.exe 时也读取 .env（shell 环境变量优先）。
+	// 兼容从仓库根目录或 server/ 目录启动。
+	envFile := ".env"
+	if _, err := os.Stat(envFile); os.IsNotExist(err) {
+		if _, parentErr := os.Stat("../.env"); parentErr == nil {
+			envFile = "../.env"
+		}
+	}
+	if keys, err := loadDotEnv(envFile); err == nil {
+		slog.Info("env_loaded", "event", "env_loaded", "file", envFile, "keys", keys)
+	} else if !os.IsNotExist(err) {
+		slog.Warn("env_load_failed", "event", "env_load_failed", "file", envFile, "error", err.Error())
+	}
+
 	var (
 		listen        = flag.String("listen", envOr("LISTEN", ":"+envOr("PORT", "8080")), "HTTP 监听地址")
 		server        = flag.String("mumble-server", envOr("MUMBLE_SERVER", "localhost:64738"), "Mumble 服务器（host 或 host:port，无端口时走 SRV 解析）")
@@ -99,6 +113,9 @@ func main() {
 
 	diag := newDiagSink(*diagDir)
 
+	// 同名会话注册表：代理内部做确定性接管，避免两个页面互相顶造成无限重连。
+	registry := bridge.NewSessionRegistry()
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		ws, err := upgrader.Upgrade(w, r, nil)
@@ -106,7 +123,7 @@ func main() {
 			slog.Warn("ws_upgrade_failed", "event", "ws_upgrade_failed", "error", err.Error())
 			return
 		}
-		sess := bridge.NewSession(ws, target, udpMux, *publicIP, *allowOverride, inviteStore, newSID(), version)
+		sess := bridge.NewSession(ws, target, udpMux, *publicIP, *allowOverride, inviteStore, registry, newSID(), version)
 		sess.Run()
 	})
 	mux.HandleFunc("/api/server", func(w http.ResponseWriter, r *http.Request) {
@@ -166,7 +183,8 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		token := r.PathValue("token")
 		if inviteStore == nil || !inviteStore.Validate(token) {
-			fmt.Fprint(w, `{"valid":false,"reason":"邀请链接无效、已过期或已被使用"}`)
+			// code 供前端映射本地化文案；reason 只作为“详情”排障。
+			fmt.Fprint(w, `{"valid":false,"code":"invite_invalid","reason":"邀请链接无效、已过期或已被使用"}`)
 			return
 		}
 		fmt.Fprint(w, `{"valid":true}`)

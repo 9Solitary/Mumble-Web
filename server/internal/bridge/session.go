@@ -43,14 +43,18 @@ type Session struct {
 	inviteToken string        // 本会话认领的邀请 token，会话结束时作废
 	resumeToken string        // 本会话持有的断线恢复凭据，用户主动退出时吊销
 
+	registry        *SessionRegistry // 同名会话注册表（nil = 不启用）
+	sessionKey      string           // 上游地址 + 小写昵称
+	takeoverPending atomic.Bool      // 有新会话正在拨号接管本会话
+
 	mu        sync.Mutex
 	client    *gumble.Client
 	rtc       *rtcPeer
 	connected bool
 
-	cleanupOnce sync.Once     // 保证清理只执行一次（WS 错误/Mumble 断开/主动退出可能并发触发）
-	wsMu        sync.Mutex    // 串行化 WS 写（writePump 与 closeWS 等控制帧写可能并发）
-	closeCode   atomic.Int32  // 非 0 时 writePump 排空发送队列后按此码发 WS 关闭帧
+	cleanupOnce sync.Once    // 保证清理只执行一次（WS 错误/Mumble 断开/主动退出可能并发触发）
+	wsMu        sync.Mutex   // 串行化 WS 写（writePump 与 closeWS 等控制帧写可能并发）
+	closeCode   atomic.Int32 // 非 0 时 writePump 排空发送队列后按此码发 WS 关闭帧
 
 	pttActive atomic.Bool
 	voiceSeq  int64
@@ -73,7 +77,7 @@ type Session struct {
 	udpMux     ice.UDPMux
 }
 
-func NewSession(ws *websocket.Conn, upstream mumbleconn.Target, udpMux ice.UDPMux, publicIP string, allowOverride bool, invites *invite.Store, sid, version string) *Session {
+func NewSession(ws *websocket.Conn, upstream mumbleconn.Target, udpMux ice.UDPMux, publicIP string, allowOverride bool, invites *invite.Store, registry *SessionRegistry, sid, version string) *Session {
 	return &Session{
 		ws:            ws,
 		send:          make(chan Envelope, 256),
@@ -84,6 +88,7 @@ func NewSession(ws *websocket.Conn, upstream mumbleconn.Target, udpMux ice.UDPMu
 		upstream:      upstream,
 		allowOverride: allowOverride,
 		invites:       invites,
+		registry:      registry,
 		lastVoice:     make(map[uint32]time.Time),
 		talking:       make(map[uint32]bool),
 		voiceFrames:   make(map[uint32]int),
@@ -228,6 +233,22 @@ func (s *Session) requestClose(code int) {
 	s.closeCode.Store(int32(code))
 }
 
+// wsCloseSessionEnded 是“不再自动重连”的自定义 WS 关闭码。
+// 前端仍以 disconnected/reject 信封里的 code 为准；这个关闭码只用于日志与兜底。
+const wsCloseSessionEnded = 4001
+
+// endWith 结束本会话：推一条带 code 的 disconnected，排空后以 4001 关闭 WS。
+// 用于同名接管、被踢/封禁等终止态；前端收到 code 后不会再自动重连。
+func (s *Session) endWith(code, reason string) {
+	if !s.closeCode.CompareAndSwap(0, wsCloseSessionEnded) {
+		s.cleanup()
+		return
+	}
+	s.logEvent("session_end", "code", code)
+	s.push(Envelope{Type: DownDisconnect, Reason: reason, Code: code})
+	s.cleanup()
+}
+
 // cleanup 幂等清理：关闭 rtc/上游连接、作废认领的邀请。
 // WS 读错误、Mumble 断开、前端主动 disconnect 三条路径可能并发触发，sync.Once 保证只执行一次。
 // 注意：resume token 不在此吊销——挂机断线后新会话还要凭它恢复；
@@ -244,6 +265,9 @@ func (s *Session) cleanup() {
 		if s.client != nil {
 			s.client.Disconnect()
 			s.client = nil
+		}
+		if s.registry != nil && s.sessionKey != "" {
+			s.registry.Unregister(s.sessionKey, s)
 		}
 		if s.inviteToken != "" && s.invites != nil {
 			// 会话结束（退出登录/断线）：一次性邀请立即作废
@@ -375,12 +399,12 @@ func (s *Session) withClient(f func(*gumble.Client)) {
 func (s *Session) handleConnect(env Envelope) {
 	if env.ResumeToken != "" {
 		if s.invites == nil {
-			s.push(Envelope{Type: DownReject, Reason: "邀请功能未启用"})
+			s.push(Envelope{Type: DownReject, Reason: "邀请功能未启用", Code: "invite_unavailable"})
 			return
 		}
 		rt, ok := s.invites.RedeemResume(env.ResumeToken, env.Username)
 		if !ok {
-			s.push(Envelope{Type: DownReject, Reason: "恢复凭据无效或已过期，请重新使用邀请链接"})
+			s.push(Envelope{Type: DownReject, Reason: "恢复凭据无效或已过期，请重新使用邀请链接", Code: "resume_invalid"})
 			return
 		}
 		s.logEvent("resume_redeem", "username", rt.Username)
@@ -392,12 +416,12 @@ func (s *Session) handleConnect(env Envelope) {
 		return
 	}
 	if s.invites == nil {
-		s.push(Envelope{Type: DownReject, Reason: "邀请功能未启用"})
+		s.push(Envelope{Type: DownReject, Reason: "邀请功能未启用", Code: "invite_unavailable"})
 		return
 	}
 	inv, ok := s.invites.Claim(env.InviteToken)
 	if !ok {
-		s.push(Envelope{Type: DownReject, Reason: "邀请链接无效或已被使用"})
+		s.push(Envelope{Type: DownReject, Reason: "邀请链接无效或已被使用", Code: "invite_invalid"})
 		return
 	}
 	s.logEvent("invite_claim", "token", env.InviteToken[:8], "username", env.Username)
@@ -420,25 +444,43 @@ func (s *Session) connectMumble(username, password, serverAddr string, trusted b
 	if serverAddr != "" && serverAddr != upstream.Original {
 		if !trusted && !s.allowOverride {
 			releaseInvite()
-			s.push(Envelope{Type: DownReject, Reason: "该代理不允许自选服务器"})
+			s.push(Envelope{Type: DownReject, Reason: "该代理不允许自选服务器", Code: "server_override_denied"})
 			return
 		}
 		// 浏览器（或邀请）指定了其他上游：按代理的 TLS 策略（含 pin）重新解析
 		t, err := mumbleconn.Resolve(serverAddr, upstream.TLSMode)
 		if err != nil {
 			releaseInvite()
-			s.push(Envelope{Type: DownReject, Reason: "服务器地址解析失败: " + err.Error()})
+			s.push(Envelope{Type: DownReject, Reason: "服务器地址解析失败: " + err.Error(), Code: "server_unreachable"})
 			return
 		}
 		s.logEvent("upstream_override", "original", t.Original, "resolved", t.Address, "default", upstream.Original)
 		upstream = t
 	}
 
+	// 同名会话占位：先占位再拨号，避免两个新登录同时尝试；旧会话暂不断开。
+	key := registryKey(upstream.Address, username)
+	if s.registry != nil {
+		if _, ok := s.registry.Reserve(key, s); !ok {
+			releaseInvite()
+			s.push(Envelope{Type: DownReject, Reason: "已有同名会话正在登录", Code: "login_in_progress"})
+			return
+		}
+		s.sessionKey = key
+	}
+	releaseReservation := func() {
+		if s.registry != nil && s.sessionKey != "" {
+			s.registry.Release(s.sessionKey, s)
+			s.sessionKey = ""
+		}
+	}
+
 	// 先建 WebRTC 连接（语音桥），再做 Mumble 登录
 	rtc, err := newRTCPeer(s.udpMux, s.publicIP, s.push, s.logEvent)
 	if err != nil {
+		releaseReservation()
 		releaseInvite()
-		s.push(Envelope{Type: DownError, Reason: "WebRTC 初始化失败: " + err.Error()})
+		s.push(Envelope{Type: DownError, Reason: "WebRTC 初始化失败: " + err.Error(), Code: "webrtc_failed"})
 		return
 	}
 	rtc.SetMicHandler(s.onMicFrame)
@@ -452,11 +494,20 @@ func (s *Session) connectMumble(username, password, serverAddr string, trusted b
 	client, err := mumbleconn.Dial(upstream, config)
 	if err != nil {
 		rtc.Close()
+		releaseReservation()
 		releaseInvite()
 		s.logEvent("mumble_connect_failed", "username", username, "error", err.Error())
-		s.push(Envelope{Type: DownReject, Reason: err.Error()})
+		s.push(Envelope{Type: DownReject, Reason: err.Error(), Code: mumbleRejectCode(err)})
 		return
 	}
+
+	// 拨号成功：把占位提升为 owner，并结束被接管的旧会话。
+	if s.registry != nil {
+		if prev := s.registry.Commit(key, s); prev != nil {
+			go prev.endWith("session_takeover", "another session signed in with this name")
+		}
+	}
+
 	s.logEvent("mumble_connect", "username", username)
 	client.RawVoiceHandler = s.onVoicePacket
 
@@ -725,10 +776,17 @@ func (l *mumbleListener) OnDisconnect(e *gumble.DisconnectEvent) {
 	if reason == "" {
 		reason = "与服务器断开连接"
 	}
-	s.logEvent("mumble_disconnect", "reason", reason, "kind", gumble.ClassifyDisconnectError(e.Err))
-	s.push(Envelope{Type: DownDisconnect, Reason: reason})
-	// 契约：上游异常断开时以 1011 关闭 WS（先排空 disconnected 信封），前端据此触发自动重连
-	s.requestClose(websocket.CloseInternalServerErr)
+	code := disconnectCode(s, e)
+	s.logEvent("mumble_disconnect", "reason", reason, "code", code, "kind", gumble.ClassifyDisconnectError(e.Err))
+	s.push(Envelope{Type: DownDisconnect, Reason: reason, Code: code})
+	// 被顶/被踢/封禁：以 4001 关闭，前端收到 code 后不再自动重连；
+	// 网络类断开仍以 1011 关闭，驱动前端退避重连。
+	switch code {
+	case "session_takeover", "kicked", "banned":
+		s.requestClose(wsCloseSessionEnded)
+	default:
+		s.requestClose(websocket.CloseInternalServerErr)
+	}
 	s.cleanup()
 }
 
@@ -773,9 +831,9 @@ func (l *mumbleListener) OnPermissionDenied(e *gumble.PermissionDeniedEvent) {
 	l.s.push(Envelope{Type: DownDenied, Reason: e.String})
 }
 
-func (l *mumbleListener) OnUserList(e *gumble.UserListEvent)               {}
-func (l *mumbleListener) OnACL(e *gumble.ACLEvent)                         {}
-func (l *mumbleListener) OnBanList(e *gumble.BanListEvent)                 {}
+func (l *mumbleListener) OnUserList(e *gumble.UserListEvent) {}
+func (l *mumbleListener) OnACL(e *gumble.ACLEvent)           {}
+func (l *mumbleListener) OnBanList(e *gumble.BanListEvent)   {}
 func (l *mumbleListener) OnContextActionChange(e *gumble.ContextActionChangeEvent) {
 }
 func (l *mumbleListener) OnServerConfig(e *gumble.ServerConfigEvent) {

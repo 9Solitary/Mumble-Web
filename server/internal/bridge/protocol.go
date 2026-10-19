@@ -21,7 +21,7 @@ const (
 	DownRtcOffer    = "rtcOffer" // WebRTC 信令
 	DownRtcIce      = "rtcCandidate"
 	DownError       = "error"
-	DownConfig      = "config" // 服务器配置（消息长度限制等）
+	DownConfig      = "config"       // 服务器配置（消息长度限制等）
 	DownResumeToken = "resume_token" // 邀请/恢复登录成功后下发断线恢复凭据
 )
 
@@ -48,13 +48,14 @@ type Envelope struct {
 	ServerAddr  string `json:"serverAddr,omitempty"`  // connect 时可选：覆盖代理默认上游服务器
 	InviteToken string `json:"inviteToken,omitempty"` // connect 时可选：一次性邀请 token（服务器/密码以服务端存储为准）
 	ResumeToken string `json:"resumeToken,omitempty"` // connect 时可选：断线恢复凭据（与 password/inviteToken 互斥）
-	Session    uint32 `json:"session,omitempty"`
-	ChannelID  uint32 `json:"channelId,omitempty"`
-	Message    string `json:"message,omitempty"`
-	Active     *bool  `json:"active,omitempty"`
-	Mute       *bool  `json:"mute,omitempty"`
-	Deaf       *bool  `json:"deaf,omitempty"`
-	Reason     string `json:"reason,omitempty"`
+	Session     uint32 `json:"session,omitempty"`
+	ChannelID   uint32 `json:"channelId,omitempty"`
+	Message     string `json:"message,omitempty"`
+	Active      *bool  `json:"active,omitempty"`
+	Mute        *bool  `json:"mute,omitempty"`
+	Deaf        *bool  `json:"deaf,omitempty"`
+	Reason      string `json:"reason,omitempty"`
+	Code        string `json:"code,omitempty"` // reject/disconnected：稳定错误码，前端按 code 翻译
 
 	// hello 下发：会话标识与构建版本（诊断上报与日志按 sid+version 关联）
 	SID     string `json:"sid,omitempty"`
@@ -70,13 +71,13 @@ type Envelope struct {
 	SDPMid    string `json:"sdpMid,omitempty"`
 
 	// 下行载荷
-	Server   *ServerInfoPayload   `json:"server,omitempty"`
-	Self     *SelfPayload         `json:"self,omitempty"`
-	Channel  *ChannelPayload      `json:"channel,omitempty"`
-	User     *UserPayload         `json:"user,omitempty"`
-	Text     *TextPayload         `json:"text,omitempty"`
-	Talking  *TalkingPayload      `json:"talking,omitempty"`
-	Config   *ConfigPayload       `json:"config,omitempty"`
+	Server  *ServerInfoPayload `json:"server,omitempty"`
+	Self    *SelfPayload       `json:"self,omitempty"`
+	Channel *ChannelPayload    `json:"channel,omitempty"`
+	User    *UserPayload       `json:"user,omitempty"`
+	Text    *TextPayload       `json:"text,omitempty"`
+	Talking *TalkingPayload    `json:"talking,omitempty"`
+	Config  *ConfigPayload     `json:"config,omitempty"`
 }
 
 type ServerInfoPayload struct {
