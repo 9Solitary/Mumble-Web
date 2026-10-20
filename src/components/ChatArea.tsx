@@ -1,5 +1,7 @@
 import {
   Fragment,
+  Suspense,
+  lazy,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -10,7 +12,6 @@ import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useAppStore } from "@/store/appStore";
 import { UserAvatar } from "./UserAvatar";
-import { ImageLightbox } from "./ImageLightbox";
 import {
   Check,
   Copy,
@@ -32,6 +33,13 @@ import { cn } from "@/lib/utils";
 import type { TextMessageInfo } from "@/lib/protocol";
 
 const EMPTY_MESSAGES: TextMessageInfo[] = [];
+
+// 图片查看器只在第一次打开时加载，不占首屏。
+const ImageLightbox = lazy(() =>
+  import("./ImageLightbox").then((module) => ({
+    default: module.ImageLightbox,
+  })),
+);
 
 function formatTime(ts: number, locale: string): string {
   const date = new Date(ts * 1000);
@@ -647,19 +655,21 @@ export function ChatArea({
       </div>
 
       {lightbox && (
-        <ImageLightbox
-          images={lightbox.images}
-          index={lightbox.index}
-          onClose={() => {
-            setLightbox(null);
-            window.requestAnimationFrame(() => {
-              lightboxTriggerRef.current?.focus();
-            });
-          }}
-          onIndexChange={(index) =>
-            setLightbox((current) => (current ? { ...current, index } : current))
-          }
-        />
+        <Suspense fallback={null}>
+          <ImageLightbox
+            images={lightbox.images}
+            index={lightbox.index}
+            onClose={() => {
+              setLightbox(null);
+              window.requestAnimationFrame(() => {
+                lightboxTriggerRef.current?.focus();
+              });
+            }}
+            onIndexChange={(index) =>
+              setLightbox((current) => (current ? { ...current, index } : current))
+            }
+          />
+        </Suspense>
       )}
     </main>
   );

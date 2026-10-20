@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 
@@ -12,8 +12,7 @@ import { ChatArea } from "@/components/ChatArea";
 import { MemberList } from "@/components/MemberList";
 import { VoiceDock } from "@/components/VoiceDock";
 import { VoicePanel } from "@/components/VoicePanel";
-import { SettingsDialog, type SettingsTab } from "@/components/SettingsDialog";
-import { ShortcutHelpDialog } from "@/components/ShortcutHelpDialog";
+import type { SettingsTab } from "@/components/SettingsDialog";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { RemoteAudio } from "@/components/RemoteAudio";
 import { Button } from "@/components/ui/button";
@@ -24,6 +23,18 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+
+// 设置、快捷键帮助只在打开时下载，避免把诊断/快捷键等代码带进首屏。
+const SettingsDialog = lazy(() =>
+  import("@/components/SettingsDialog").then((module) => ({
+    default: module.SettingsDialog,
+  })),
+);
+const ShortcutHelpDialog = lazy(() =>
+  import("@/components/ShortcutHelpDialog").then((module) => ({
+    default: module.ShortcutHelpDialog,
+  })),
+);
 
 const COLLAPSED_CHANNELS_KEY = "mumble-web.collapsedChannels";
 
@@ -267,13 +278,24 @@ export function AppShell() {
         </SheetContent>
       </Sheet>
 
-      <SettingsDialog
-        key={settingsOpen ? `settings-${settingsTab}` : "settings-closed"}
-        open={settingsOpen}
-        onOpenChange={handleSettingsOpenChange}
-        initialTab={settingsTab}
-      />
-      <ShortcutHelpDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
+      {settingsOpen && (
+        <Suspense fallback={null}>
+          <SettingsDialog
+            key={`settings-${settingsTab}`}
+            open={settingsOpen}
+            onOpenChange={handleSettingsOpenChange}
+            initialTab={settingsTab}
+          />
+        </Suspense>
+      )}
+      {shortcutsOpen && (
+        <Suspense fallback={null}>
+          <ShortcutHelpDialog
+            open={shortcutsOpen}
+            onOpenChange={setShortcutsOpen}
+          />
+        </Suspense>
+      )}
       <RemoteAudio />
     </div>
   );

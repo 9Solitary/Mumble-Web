@@ -138,9 +138,12 @@ test.describe("设置页短屏与诊断", () => {
     await mockBackend(page);
     const settings = await enter(page);
     await settings.click();
-    await page.waitForTimeout(300); // 等弹窗打开动画结束
+    const dialog = page.getByRole("dialog");
+    // 设置面板按需加载：先等它挂载，再等打开动画结束，坐标才稳定。
+    await expect(dialog).toBeVisible();
+    await page.waitForTimeout(300);
 
-    const slider = page.getByRole("dialog").locator('[data-slot="slider"]').first();
+    const slider = dialog.locator('[data-slot="slider"]').first();
     const box = (await slider.boundingBox())!;
     expect(box.width, "麦克风增益滑条宽度为 0").toBeGreaterThan(200);
 
@@ -148,7 +151,7 @@ test.describe("设置页短屏与诊断", () => {
     await page.mouse.down();
     await page.mouse.move(box.x + box.width * 0.8, box.y + box.height / 2, { steps: 6 });
     await page.mouse.up();
-    await expect(page.getByRole("dialog")).toContainText("160%");
+    await expect(dialog).toContainText("160%");
   });
 
   test("无麦克风权限：设置不崩溃，显示授权提示", async ({ page }) => {
