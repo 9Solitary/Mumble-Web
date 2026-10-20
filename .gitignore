@@ -46,6 +46,9 @@ server/proxy.exe.bak
 # UI 重构方案与静态视觉稿（本地溯源，暂不上传远端）
 docs/ui-redesign/
 
+# 本地可行性与排查记录（勿提交）
+docs/local/
+
 # Playwright 产物
 playwright-report/
 test-results/
