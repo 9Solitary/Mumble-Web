@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 
 export function TopBar({ onOpenChannels }: { onOpenChannels: () => void }) {
   const { t } = useTranslation();
-  const { server, connState } = useAppStore();
+  const { server, connState, reconnectAttempt } = useAppStore();
   const rtt = useRtt();
   const reconnecting = connState === "reconnecting";
   const serverLabel = server?.address || t("shell.serverFallback");
@@ -46,7 +46,10 @@ export function TopBar({ onOpenChannels }: { onOpenChannels: () => void }) {
           {serverLabel}
         </span>
         <span
+          role="status"
           aria-live="polite"
+          aria-atomic="true"
+          data-testid="connection-pill"
           className={cn(
             "flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-data",
             reconnecting
@@ -61,7 +64,11 @@ export function TopBar({ onOpenChannels }: { onOpenChannels: () => void }) {
               reconnecting ? "bg-amber" : "bg-mint",
             )}
           />
-          {reconnecting ? t("shell.reconnecting") : t("shell.connected")}
+          {reconnecting
+            ? reconnectAttempt > 0
+              ? t("shell.reconnectingAttempt", { attempt: reconnectAttempt })
+              : t("shell.reconnecting")
+            : t("shell.connected")}
           {!reconnecting && rtt != null && (
             <span className="hidden font-mono text-fg-muted sm:inline">
               {t("units.ms", { value: Math.round(rtt) })}

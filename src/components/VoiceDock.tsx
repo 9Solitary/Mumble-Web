@@ -1,4 +1,3 @@
-import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Headphones,
@@ -10,6 +9,8 @@ import {
 } from "lucide-react";
 
 import { useAppStore } from "@/store/appStore";
+import { useShortcutStore } from "@/store/shortcutStore";
+import { formatAriaShortcut } from "@/lib/shortcuts";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/ui/icon-button";
@@ -61,7 +62,6 @@ export function VoiceDock({ onOpenSettings }: { onOpenSettings: () => void }) {
   const {
     self,
     selfTalking,
-    pttMode,
     selfMuted,
     selfDeafened,
     channels,
@@ -69,41 +69,14 @@ export function VoiceDock({ onOpenSettings }: { onOpenSettings: () => void }) {
     outputVolume,
     setSelfMute,
     setSelfDeaf,
-    setTransmitting,
     setMicGain,
     setOutputVolume,
     leaveVoice,
   } = useAppStore();
   const status = useVoiceStatus();
+  const muteShortcut = useShortcutStore((s) => s.bindings.toggleMute);
+  const deafenShortcut = useShortcutStore((s) => s.bindings.toggleDeafen);
   const rootChannelId = Object.values(channels).find((c) => c.parentId < 0)?.id ?? 0;
-
-  // PTT 模式：按住空格说话（输入框聚焦时不触发）
-  useEffect(() => {
-    if (pttMode !== "ptt") return;
-    const isTyping = () => {
-      const el = document.activeElement;
-      return (
-        el instanceof HTMLInputElement ||
-        el instanceof HTMLTextAreaElement ||
-        (el instanceof HTMLElement && el.isContentEditable)
-      );
-    };
-    const down = (e: KeyboardEvent) => {
-      if (e.code === "Space" && !e.repeat && !isTyping()) {
-        e.preventDefault();
-        setTransmitting(true);
-      }
-    };
-    const up = (e: KeyboardEvent) => {
-      if (e.code === "Space") setTransmitting(false);
-    };
-    window.addEventListener("keydown", down);
-    window.addEventListener("keyup", up);
-    return () => {
-      window.removeEventListener("keydown", down);
-      window.removeEventListener("keyup", up);
-    };
-  }, [pttMode, setTransmitting]);
 
   if (!self) return null;
 
@@ -131,7 +104,7 @@ export function VoiceDock({ onOpenSettings }: { onOpenSettings: () => void }) {
           </div>
         </div>
         <span className="sr-only min-[390px]:hidden">
-          {self.name} · {status}
+          {t("shell.selfStatus", { name: self.name, status })}
         </span>
       </div>
 
@@ -139,7 +112,8 @@ export function VoiceDock({ onOpenSettings }: { onOpenSettings: () => void }) {
         <div className="group">
           <IconButton
             label={selfMuted ? t("userbar.unmute") : t("userbar.mute")}
-            aria-pressed={!selfMuted}
+            aria-pressed={selfMuted}
+            aria-keyshortcuts={formatAriaShortcut(muteShortcut)}
             data-testid="voice-mute"
             onClick={() => setSelfMute(!selfMuted)}
             className={cn(
@@ -160,7 +134,8 @@ export function VoiceDock({ onOpenSettings }: { onOpenSettings: () => void }) {
         <div className="group">
           <IconButton
             label={selfDeafened ? t("userbar.undeafen") : t("userbar.deafen")}
-            aria-pressed={!selfDeafened}
+            aria-pressed={selfDeafened}
+            aria-keyshortcuts={formatAriaShortcut(deafenShortcut)}
             data-testid="voice-deafen"
             onClick={() => setSelfDeaf(!selfDeafened)}
             className={cn(
@@ -197,6 +172,7 @@ export function VoiceDock({ onOpenSettings }: { onOpenSettings: () => void }) {
         <IconButton
           label={t("userbar.settings")}
           tooltip={t("userbar.settings")}
+          tooltipHoverOnly
           data-testid="voice-settings"
           onClick={onOpenSettings}
           className="size-11"

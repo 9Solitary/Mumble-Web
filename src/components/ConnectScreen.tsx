@@ -200,7 +200,7 @@ export function ConnectScreen({ inviteToken }: { inviteToken?: string }) {
             className="rounded-control border border-danger/30 bg-danger/10 px-3 py-2.5 text-caption text-danger"
           >
             <div className="flex items-start gap-2">
-              <AlertCircle className="mt-0.5 size-4 shrink-0" />
+              <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
               <p className="min-w-0">{t(localizedError)}</p>
             </div>
             {showDetail && (
@@ -223,7 +223,7 @@ export function ConnectScreen({ inviteToken }: { inviteToken?: string }) {
         >
           {connecting ? (
             <>
-              <Loader2 className="size-4 animate-spin" />
+              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
               {t("connect.connecting")}
             </>
           ) : (

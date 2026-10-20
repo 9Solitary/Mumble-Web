@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAppStore } from "@/store/appStore";
 import { buildChannelTree } from "@/lib/channelTree";
@@ -166,15 +166,28 @@ function MemberRow({
 
 export function MemberList({
   variant = "sidebar",
+  focusSearchSignal = 0,
 }: {
   variant?: MemberListVariant;
+  focusSearchSignal?: number;
 }) {
   const { t, i18n } = useTranslation();
   const { channels, users, self } = useAppStore();
   const [search, setSearch] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
   const isDrawer = variant === "drawer";
   const prefix = isDrawer ? "drawer-" : "";
   const query = search.trim().toLocaleLowerCase(i18n.language);
+
+  useEffect(() => {
+    if (!focusSearchSignal) return;
+    // 抽屉打开动画期间先等一帧；只有可见实例接管焦点。
+    const timer = window.setTimeout(() => {
+      const el = searchRef.current;
+      if (el && el.offsetParent !== null) el.focus();
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [focusSearchSignal]);
 
   const ordered = useMemo(
     () => buildChannelTree(channels).ordered,
@@ -237,8 +250,9 @@ export function MemberList({
   const hasResults = filteredGroups.length > 0;
 
   return (
-    <div
+    <aside
       data-testid={isDrawer ? "member-list-drawer" : "member-list"}
+      aria-label={t("member.title")}
       className={
         isDrawer
           ? "flex h-full w-full min-w-0 flex-col bg-ink-900"
@@ -258,6 +272,7 @@ export function MemberList({
             aria-hidden="true"
           />
           <input
+            ref={searchRef}
             type="text"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
@@ -306,7 +321,7 @@ export function MemberList({
             </div>
           ))
         ) : (
-          <div className="px-4 py-10 text-center">
+          <div role="status" className="px-4 py-10 text-center">
             <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-fg/[0.04]">
               <Users className="size-5 text-fg-subtle" aria-hidden="true" />
             </div>
@@ -326,6 +341,6 @@ export function MemberList({
           </div>
         )}
       </div>
-    </div>
+    </aside>
   );
 }

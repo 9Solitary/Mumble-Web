@@ -7,7 +7,10 @@ import { useAppStore } from "@/store/appStore";
 // - 其他频道有消息多过上次已读数量时标记未读；
 // - 进入频道后清除。
 // 不持久化、不写服务端，也不改 appStore 的消息逻辑。
-export function useUnreadChannels(viewChannelId: number): Set<number> {
+export function useUnreadChannels(viewChannelId: number): {
+  channels: Set<number>;
+  count: number;
+} {
   const messages = useAppStore((s) => s.messages);
   const [readCounts, setReadCounts] = useState<Record<number, number>>({});
 
@@ -22,12 +25,17 @@ export function useUnreadChannels(viewChannelId: number): Set<number> {
   }, [messages, viewChannelId]);
 
   return useMemo(() => {
-    const unread = new Set<number>();
+    const channels = new Set<number>();
+    let count = 0;
     for (const [key, list] of Object.entries(messages)) {
       const channelId = Number(key);
       if (channelId === viewChannelId) continue;
-      if (list.length > (readCounts[channelId] ?? 0)) unread.add(channelId);
+      const unread = list.length - (readCounts[channelId] ?? 0);
+      if (unread > 0) {
+        channels.add(channelId);
+        count += unread;
+      }
     }
-    return unread;
+    return { channels, count };
   }, [messages, readCounts, viewChannelId]);
 }

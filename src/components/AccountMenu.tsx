@@ -37,15 +37,16 @@ export function AccountMenu() {
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            aria-label={t("userbar.account")}
             data-testid="account-menu-trigger"
             className="flex h-10 shrink-0 items-center gap-1.5 rounded-full pl-1 pr-1 text-fg-muted transition-colors duration-fast hover:bg-ink-800 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint/70 focus-visible:ring-offset-2 focus-visible:ring-offset-ink-900 md:h-9 md:pr-2"
           >
+            <span className="sr-only">{t("userbar.account")}</span>
             <UserAvatar name={self.name} size={30} />
             <span className="hidden max-w-24 truncate text-ui font-medium text-fg sm:inline">
               {self.name}
             </span>
-            <ChevronDown className="hidden size-3.5 text-fg-subtle sm:inline" />
+            <span className="sr-only sm:hidden">{self.name}</span>
+            <ChevronDown className="hidden size-3.5 text-fg-subtle sm:inline" aria-hidden="true" />
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">

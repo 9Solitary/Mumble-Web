@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 
 import { useAppStore } from "@/store/appStore";
+import { useUiStore } from "@/store/uiStore";
 import { useUnreadChannels } from "@/hooks/useUnreadChannels";
 import { useEdgeSwipe } from "@/hooks/useEdgeSwipe";
 import { TopBar } from "@/components/TopBar";
@@ -12,6 +13,8 @@ import { MemberList } from "@/components/MemberList";
 import { VoiceDock } from "@/components/VoiceDock";
 import { VoicePanel } from "@/components/VoicePanel";
 import { SettingsDialog, type SettingsTab } from "@/components/SettingsDialog";
+import { ShortcutHelpDialog } from "@/components/ShortcutHelpDialog";
+import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { RemoteAudio } from "@/components/RemoteAudio";
 import { Button } from "@/components/ui/button";
 import {
@@ -61,20 +64,36 @@ export function AppShell() {
   } = useAppStore();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("audio");
+  const settingsReturnFocus = useRef<HTMLElement | null>(null);
   const [channelsOpen, setChannelsOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [memberSearchSignal, setMemberSearchSignal] = useState(0);
   // 单击频道只切换查看的聊天，不改变自己所在的语音频道。
-  // 该状态是纯展示层，不写 appStore，避免影响重连/发言目标。
-  const [viewChannelId, setViewChannelId] = useState(
-    () => selectedChannelId || self?.channelId || 0,
-  );
+  // 该状态是纯展示层，放在 uiStore，避免影响重连/发言目标。
+  const viewChannelId = useUiStore((s) => s.viewChannelId);
+  const setViewChannelId = useUiStore((s) => s.setViewChannelId);
   const [collapsedChannels, setCollapsedChannels] =
     useState<Set<number>>(loadCollapsedChannels);
-  const unreadChannels = useUnreadChannels(viewChannelId);
+  const unread = useUnreadChannels(viewChannelId);
+  const unreadChannels = unread.channels;
+  const setUnreadCount = useUiStore((s) => s.setUnreadCount);
 
   useEffect(() => {
-    setViewChannelId(selectedChannelId);
-  }, [selectedChannelId]);
+    setUnreadCount(unread.count);
+  }, [setUnreadCount, unread.count]);
+
+  useEffect(
+    () => () => {
+      setUnreadCount(0);
+    },
+    [setUnreadCount],
+  );
+
+  useEffect(() => {
+    // 初始进入或切换自身语音频道时，跟随到当前频道。
+    setViewChannelId(selectedChannelId ?? self?.channelId ?? 0);
+  }, [selectedChannelId, self?.channelId, setViewChannelId]);
 
   useEffect(() => {
     if (
@@ -84,7 +103,7 @@ export function AppShell() {
     ) {
       setViewChannelId(self.channelId);
     }
-  }, [channels, self?.channelId, viewChannelId]);
+  }, [channels, self?.channelId, setViewChannelId, viewChannelId]);
 
   const toggleCollapse = (channelId: number) => {
     setCollapsedChannels((previous) => {
@@ -97,8 +116,20 @@ export function AppShell() {
   };
 
   const openSettings = (tab: SettingsTab = "audio") => {
+    const active = document.activeElement;
+    if (active instanceof HTMLElement) settingsReturnFocus.current = active;
     setSettingsTab(tab);
     setSettingsOpen(true);
+  };
+
+  const handleSettingsOpenChange = (open: boolean) => {
+    setSettingsOpen(open);
+    if (open) return;
+    const target = settingsReturnFocus.current;
+    // 等 Radix 卸载完再归还焦点，避免焦点落到 body。
+    window.setTimeout(() => {
+      if (target?.isConnected) target.focus();
+    }, 0);
   };
 
   const joinSelected = () => {
@@ -107,20 +138,33 @@ export function AppShell() {
     setChannelsOpen(false);
   };
 
-  const openChannels = () => {
+  const openChannels = useCallback(() => {
     setMembersOpen(false);
     setChannelsOpen(true);
-  };
+  }, []);
 
-  const openMembers = () => {
+  const openMembers = useCallback(() => {
     setChannelsOpen(false);
     setMembersOpen(true);
-  };
+  }, []);
+
+  const openShortcutHelp = useCallback(() => setShortcutsOpen(true), []);
+
+  const focusMemberSearch = useCallback(() => {
+    // 宽屏成员栏常驻；窄屏先打开成员抽屉，再让 MemberList 聚焦搜索框。
+    if (!window.matchMedia("(min-width: 1180px)").matches) openMembers();
+    setMemberSearchSignal((value) => value + 1);
+  }, [openMembers]);
+
+  useKeyboardShortcuts({
+    onHelp: openShortcutHelp,
+    onSearchMembers: focusMemberSearch,
+  });
 
   const edgeSwipe = useEdgeSwipe({
     onOpenChannels: openChannels,
     onOpenMembers: openMembers,
-    disabled: channelsOpen || membersOpen || settingsOpen,
+    disabled: channelsOpen || membersOpen || settingsOpen || shortcutsOpen,
   });
 
   return (
@@ -135,6 +179,7 @@ export function AppShell() {
           <div
             role="status"
             aria-live="polite"
+            aria-atomic="true"
             className="flex h-7 shrink-0 items-center justify-center gap-2 border-b border-amber/20 bg-amber-strong px-3 text-data font-semibold text-ink-950"
           >
             <Loader2 className="size-3.5 animate-spin" />
@@ -161,7 +206,7 @@ export function AppShell() {
           />
         </div>
         <ChatArea channelId={viewChannelId} onOpenMembers={openMembers} />
-        <MemberList />
+        <MemberList focusSearchSignal={memberSearchSignal} />
       </div>
 
       <VoiceDock onOpenSettings={() => openSettings("audio")} />
@@ -217,7 +262,7 @@ export function AppShell() {
             </SheetDescription>
           </SheetHeader>
           <div className="min-h-0 flex-1 overflow-hidden">
-            <MemberList variant="drawer" />
+            <MemberList variant="drawer" focusSearchSignal={memberSearchSignal} />
           </div>
         </SheetContent>
       </Sheet>
@@ -225,9 +270,10 @@ export function AppShell() {
       <SettingsDialog
         key={settingsOpen ? `settings-${settingsTab}` : "settings-closed"}
         open={settingsOpen}
-        onOpenChange={setSettingsOpen}
+        onOpenChange={handleSettingsOpenChange}
         initialTab={settingsTab}
       />
+      <ShortcutHelpDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
       <RemoteAudio />
     </div>
   );

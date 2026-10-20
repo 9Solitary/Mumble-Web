@@ -88,7 +88,7 @@ export function ConnectShell({
       <SonarBackdrop />
       <div className="relative z-10 mx-auto grid w-full max-w-5xl items-center gap-10 lg:min-h-[calc(100dvh-4rem)] lg:grid-cols-[minmax(0,1fr)_400px]">
         <BrandPanel />
-        <div className="w-full max-w-[400px] justify-self-center lg:justify-self-end">
+        <main className="w-full max-w-[400px] justify-self-center lg:justify-self-end">
           <div className="mb-6 flex items-center gap-3 lg:hidden">
             <BrandMark />
             <div className="min-w-0">
@@ -110,9 +110,12 @@ export function ConnectShell({
             {children}
           </div>
           <p className="mt-4 text-center text-data text-fg-subtle">
-            Mumble Web · {t("connect.footer")}
+            {t("connect.footerLine", {
+              brand: t("app.title"),
+              footer: t("connect.footer"),
+            })}
           </p>
-        </div>
+        </main>
       </div>
     </div>
   );

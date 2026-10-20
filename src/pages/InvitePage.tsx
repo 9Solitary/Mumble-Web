@@ -15,8 +15,12 @@ import { apiUrl } from "@/lib/backend";
 function InviteStatus({ message }: { message: string }) {
   return (
     <ConnectShell cardTestId="invite-status">
-      <div className="flex flex-col items-center gap-3 py-8 text-center">
-        <Loader2 className="size-7 animate-spin text-mint" />
+      <div
+        role="status"
+        aria-live="polite"
+        className="flex flex-col items-center gap-3 py-8 text-center"
+      >
+        <Loader2 className="size-7 animate-spin text-mint" aria-hidden="true" />
         <p className="text-ui text-fg-muted">{message}</p>
       </div>
     </ConnectShell>

@@ -2,6 +2,8 @@ import { useTranslation } from "react-i18next";
 import { Headphones, HeadphoneOff, Mic, MicOff, PhoneOff, Settings } from "lucide-react";
 
 import { useAppStore } from "@/store/appStore";
+import { useShortcutStore } from "@/store/shortcutStore";
+import { formatAriaShortcut } from "@/lib/shortcuts";
 import { useRtt } from "@/hooks/useRtt";
 import { useVoiceModeLabel, useVoiceStatus } from "@/hooks/useVoiceStatus";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -76,6 +78,8 @@ export function VoicePanel({
   const status = useVoiceStatus();
   const modeLabel = useVoiceModeLabel();
   const rtt = useRtt();
+  const muteShortcut = useShortcutStore((s) => s.bindings.toggleMute);
+  const deafenShortcut = useShortcutStore((s) => s.bindings.toggleDeafen);
   const rootChannelId = Object.values(channels).find((c) => c.parentId < 0)?.id ?? 0;
 
   if (!self) return null;
@@ -143,7 +147,8 @@ export function VoicePanel({
         <div className="group relative">
           <IconButton
             label={selfMuted ? t("userbar.unmute") : t("userbar.mute")}
-            aria-pressed={!selfMuted}
+            aria-pressed={selfMuted}
+            aria-keyshortcuts={formatAriaShortcut(muteShortcut)}
             data-testid="voice-mute"
             onClick={() => setSelfMute(!selfMuted)}
             size="sm"
@@ -165,7 +170,8 @@ export function VoicePanel({
         <div className="group relative">
           <IconButton
             label={selfDeafened ? t("userbar.undeafen") : t("userbar.deafen")}
-            aria-pressed={!selfDeafened}
+            aria-pressed={selfDeafened}
+            aria-keyshortcuts={formatAriaShortcut(deafenShortcut)}
             data-testid="voice-deafen"
             onClick={() => setSelfDeaf(!selfDeafened)}
             size="sm"
@@ -191,6 +197,7 @@ export function VoicePanel({
         <IconButton
           label={t("userbar.settings")}
           tooltip={t("userbar.settings")}
+          tooltipHoverOnly
           data-testid="voice-settings"
           onClick={onOpenSettings}
           size="sm"

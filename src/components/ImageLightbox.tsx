@@ -390,7 +390,9 @@ export function ImageLightbox({
             }}
           >
             {failed ? (
-              <p className="text-sm text-fg-muted">{t("lightbox.loadFailed")}</p>
+              <p role="alert" className="text-sm text-fg-muted">
+                {t("lightbox.loadFailed")}
+              </p>
             ) : (
               <img
                 ref={imageRef}

@@ -99,7 +99,7 @@ function renderText(text: string): ReactNode[] {
 
 function renderMessage(
   message: string,
-  onOpenImage: (index: number) => void,
+  onOpenImage: (index: number, trigger: HTMLButtonElement) => void,
   viewImageLabel: string,
   imageAlt: string,
 ): ReactNode[] {
@@ -113,7 +113,7 @@ function renderMessage(
         <button
           key={parts.length}
           type="button"
-          onClick={() => onOpenImage(current)}
+          onClick={(event) => onOpenImage(current, event.currentTarget)}
           data-testid="message-image"
           className="group/image relative mt-1.5 block max-w-full cursor-zoom-in overflow-hidden rounded-lg border border-line-strong bg-ink-900 text-left"
           aria-label={viewImageLabel}
@@ -184,7 +184,11 @@ function MessageRow({
 }: {
   msg: TextMessageInfo;
   showMeta: boolean;
-  onOpenImage: (images: string[], index: number) => void;
+  onOpenImage: (
+    images: string[],
+    index: number,
+    trigger: HTMLButtonElement,
+  ) => void;
 }) {
   const { t, i18n } = useTranslation();
   const [copied, setCopied] = useState(false);
@@ -249,7 +253,8 @@ function MessageRow({
         >
           {renderMessage(
             msg.message,
-            (index) => onOpenImage(extractMessageImages(msg.message), index),
+            (index, trigger) =>
+              onOpenImage(extractMessageImages(msg.message), index, trigger),
             t("chat.viewImage"),
             t("chat.imageAlt"),
           )}
@@ -318,6 +323,7 @@ export function ChatArea({
   const [imageError, setImageError] = useState("");
   const [lightbox, setLightbox] = useState<{ images: string[]; index: number } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const lightboxTriggerRef = useRef<HTMLButtonElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -421,7 +427,11 @@ export function ChatArea({
   };
 
   return (
-    <div data-testid="chat-area" className="flex min-h-0 min-w-0 flex-1 flex-col bg-ink-850">
+    <main
+      data-testid="chat-area"
+      aria-label={t("chat.title")}
+      className="flex min-h-0 min-w-0 flex-1 flex-col bg-ink-850"
+    >
       {/* 频道标题栏 */}
       <div data-testid="chat-header" className="flex h-14 shrink-0 items-center gap-2 border-b border-line px-4">
         <Volume2 className="h-5 w-5 shrink-0 text-fg-subtle" />
@@ -458,7 +468,7 @@ export function ChatArea({
               className="flex h-8 shrink-0 items-center gap-1 rounded-control border border-line-strong px-2 text-caption text-fg-muted transition-colors hover:bg-ink-800 hover:text-fg min-[1180px]:hidden"
             >
               <Users className="size-4" aria-hidden="true" />
-              <span className="font-mono text-data">{memberCount}</span>
+              <span aria-hidden="true" className="font-mono text-data">{memberCount}</span>
             </button>
           )}
         </div>
@@ -472,9 +482,9 @@ export function ChatArea({
       >
         <div className="mx-auto w-full max-w-[820px] px-3 py-4">
           {channelMessages.length === 0 && (
-            <div className="px-4 py-10 text-center">
+            <div role="status" className="px-4 py-10 text-center">
               <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-fg/[0.04]">
-                <Volume2 className="h-8 w-8 text-fg-subtle" />
+                <Volume2 className="h-8 w-8 text-fg-subtle" aria-hidden="true" />
               </div>
               <p className="text-title font-semibold text-fg">
                 {t("chat.emptyTitle", { channel: channel?.name ?? "…" })}
@@ -522,9 +532,10 @@ export function ChatArea({
                         key={`${section.key}-${index}`}
                         msg={message}
                         showMeta={index === 0}
-                        onOpenImage={(images, imageIndex) =>
-                          setLightbox({ images, index: imageIndex })
-                        }
+                        onOpenImage={(images, imageIndex, trigger) => {
+                          lightboxTriggerRef.current = trigger;
+                          setLightbox({ images, index: imageIndex });
+                        }}
                       />
                     ))}
                   </Fragment>
@@ -639,12 +650,17 @@ export function ChatArea({
         <ImageLightbox
           images={lightbox.images}
           index={lightbox.index}
-          onClose={() => setLightbox(null)}
+          onClose={() => {
+            setLightbox(null);
+            window.requestAnimationFrame(() => {
+              lightboxTriggerRef.current?.focus();
+            });
+          }}
           onIndexChange={(index) =>
             setLightbox((current) => (current ? { ...current, index } : current))
           }
         />
       )}
-    </div>
+    </main>
   );
 }

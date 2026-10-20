@@ -26,7 +26,7 @@ export class ErrorBoundary extends Component<
   render() {
     if (this.state.hasError) {
       return (
-        <div className="min-h-screen bg-ink-950 flex flex-col items-center justify-center gap-4 text-fg-muted">
+        <main className="min-h-screen bg-ink-950 flex flex-col items-center justify-center gap-4 text-fg-muted">
           <p className="text-lg text-fg">{i18n.t("errors.pageTitle")}</p>
           <p className="text-sm text-fg-muted">{i18n.t("errors.pageBody")}</p>
           <Button
@@ -35,7 +35,7 @@ export class ErrorBoundary extends Component<
           >
             {i18n.t("errors.reload")}
           </Button>
-        </div>
+        </main>
       );
     }
     return this.props.children;

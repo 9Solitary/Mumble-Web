@@ -292,8 +292,9 @@ export function ChannelSidebar({
     : false;
 
   return (
-    <div
+    <nav
       data-testid={testId}
+      aria-label={t("shell.voiceChannels")}
       className="flex h-full w-full min-w-0 shrink-0 flex-col bg-ink-900"
     >
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
@@ -310,7 +311,7 @@ export function ChannelSidebar({
           </div>
 
           {ordered.length === 0 && (
-            <div className="px-4 py-8 text-center text-caption text-fg-subtle">
+            <div role="status" className="px-4 py-8 text-center text-caption text-fg-subtle">
               <Radio
                 className="mx-auto mb-2 size-5 opacity-60"
                 aria-hidden="true"
@@ -371,6 +372,6 @@ export function ChannelSidebar({
             ))}
         </div>
       </div>
-    </div>
+    </nav>
   );
 }
