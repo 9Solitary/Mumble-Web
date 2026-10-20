@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Headphones, HeadphoneOff, Mic, MicOff, PhoneOff, Settings } from "lucide-react";
 
@@ -7,49 +8,10 @@ import { formatAriaShortcut } from "@/lib/shortcuts";
 import { useRtt } from "@/hooks/useRtt";
 import { useVoiceModeLabel, useVoiceStatus } from "@/hooks/useVoiceStatus";
 import { UserAvatar } from "@/components/UserAvatar";
+import { VoiceVolumePanel } from "@/components/VoiceVolumePanel";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/ui/icon-button";
-import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
-
-function HoverVolumePanel({
-  label,
-  value,
-  max,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  max: number;
-  onChange: (v: number) => void;
-}) {
-  const { t } = useTranslation();
-
-  return (
-    <div className="absolute bottom-full left-0 z-50 hidden pb-2 group-hover:block group-focus-within:block">
-      <div className="w-56 max-w-[calc(100vw-1rem)] rounded-panel border border-line-control bg-ink-900 p-3 shadow-panel">
-        <div className="flex items-baseline gap-2">
-          <span className="text-micro font-medium text-fg">{label}</span>
-          <span className="ml-auto font-mono text-data text-fg-muted">
-            {Math.round(value * 100)}%
-          </span>
-        </div>
-        <Slider
-          className="mt-2"
-          aria-label={label}
-          value={[value * 100]}
-          min={0}
-          max={max * 100}
-          step={1}
-          onValueChange={([v]) => onChange(v / 100)}
-        />
-        {value === 0 && (
-          <p className="mt-1.5 text-data text-danger">{t("userbar.zeroMute")}</p>
-        )}
-      </div>
-    </div>
-  );
-}
 
 // 桌面端左下语音卡：第一行语音状态/发言方式/挂断，第二行自己/麦克风/耳机/设置。
 export function VoicePanel({
@@ -60,6 +22,7 @@ export function VoicePanel({
   onOpenVoiceSettings: () => void;
 }) {
   const { t } = useTranslation();
+  const [volumePanel, setVolumePanel] = useState<"mic" | "output" | null>(null);
   const {
     self,
     selfTalking,
@@ -95,6 +58,11 @@ export function VoicePanel({
     .filter(Boolean)
     .join(" · ");
   const modeAria = t("voicePanel.modeAria", { mode: modeLabel });
+
+  // 同一时刻只允许一个音量面板；鼠标点击留下的焦点不能让它常驻。
+  const closeVolume = (panel: "mic" | "output") => {
+    setVolumePanel((current) => (current === panel ? null : current));
+  };
 
   return (
     <div
@@ -144,13 +112,30 @@ export function VoicePanel({
           <div className="truncate text-data text-fg-subtle">{status}</div>
         </div>
 
-        <div className="group relative">
+        <div
+          className="relative"
+          onPointerEnter={(event) => {
+            if (event.pointerType === "mouse") setVolumePanel("mic");
+          }}
+          onPointerLeave={(event) => {
+            if (event.pointerType === "mouse") closeVolume("mic");
+          }}
+          onFocusCapture={() => setVolumePanel("mic")}
+          onBlurCapture={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node)) {
+              closeVolume("mic");
+            }
+          }}
+        >
           <IconButton
             label={selfMuted ? t("userbar.unmute") : t("userbar.mute")}
             aria-pressed={selfMuted}
             aria-keyshortcuts={formatAriaShortcut(muteShortcut)}
             data-testid="voice-mute"
-            onClick={() => setSelfMute(!selfMuted)}
+            onClick={() => {
+              setSelfMute(!selfMuted);
+              setVolumePanel(null);
+            }}
             size="sm"
             className={cn(
               "size-8",
@@ -159,21 +144,41 @@ export function VoicePanel({
           >
             {selfMuted ? <MicOff className="size-4" /> : <Mic className="size-4" />}
           </IconButton>
-          <HoverVolumePanel
+          <VoiceVolumePanel
+            open={volumePanel === "mic"}
             label={t("userbar.micLevel")}
             value={micGain}
             max={2}
             onChange={setMicGain}
+            icon={<Mic className="size-3.5" />}
+            testId="voice-panel-mic-volume"
           />
         </div>
 
-        <div className="group relative">
+        <div
+          className="relative"
+          onPointerEnter={(event) => {
+            if (event.pointerType === "mouse") setVolumePanel("output");
+          }}
+          onPointerLeave={(event) => {
+            if (event.pointerType === "mouse") closeVolume("output");
+          }}
+          onFocusCapture={() => setVolumePanel("output")}
+          onBlurCapture={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node)) {
+              closeVolume("output");
+            }
+          }}
+        >
           <IconButton
             label={selfDeafened ? t("userbar.undeafen") : t("userbar.deafen")}
             aria-pressed={selfDeafened}
             aria-keyshortcuts={formatAriaShortcut(deafenShortcut)}
             data-testid="voice-deafen"
-            onClick={() => setSelfDeaf(!selfDeafened)}
+            onClick={() => {
+              setSelfDeaf(!selfDeafened);
+              setVolumePanel(null);
+            }}
             size="sm"
             className={cn(
               "size-8",
@@ -186,11 +191,14 @@ export function VoicePanel({
               <Headphones className="size-4" />
             )}
           </IconButton>
-          <HoverVolumePanel
+          <VoiceVolumePanel
+            open={volumePanel === "output"}
             label={t("userbar.outputLevel")}
             value={outputVolume}
             max={1.5}
             onChange={setOutputVolume}
+            icon={<Headphones className="size-3.5" />}
+            testId="voice-panel-output-volume"
           />
         </div>
 

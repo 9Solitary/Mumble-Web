@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Headphones,
@@ -12,53 +13,15 @@ import { useAppStore } from "@/store/appStore";
 import { useShortcutStore } from "@/store/shortcutStore";
 import { formatAriaShortcut } from "@/lib/shortcuts";
 import { UserAvatar } from "@/components/UserAvatar";
+import { VoiceVolumePanel } from "@/components/VoiceVolumePanel";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/ui/icon-button";
-import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
 import { useVoiceStatus } from "@/hooks/useVoiceStatus";
 
-function HoverVolumePanel({
-  label,
-  value,
-  max,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  max: number;
-  onChange: (v: number) => void;
-}) {
-  const { t } = useTranslation();
-
-  return (
-    <div className="absolute bottom-full left-3 z-50 hidden pb-2 group-hover:block group-focus-within:block">
-      <div className="w-56 max-w-[calc(100vw-6.5rem)] rounded-panel border border-line-control bg-ink-900 p-3 shadow-panel">
-        <div className="flex items-baseline gap-2">
-          <span className="text-micro font-medium text-fg">{label}</span>
-          <span className="ml-auto font-mono text-data text-fg-muted">
-            {Math.round(value * 100)}%
-          </span>
-        </div>
-        <Slider
-          className="mt-2"
-          aria-label={label}
-          value={[value * 100]}
-          min={0}
-          max={max * 100}
-          step={1}
-          onValueChange={([v]) => onChange(v / 100)}
-        />
-        {value === 0 && (
-          <p className="mt-1.5 text-data text-danger">{t("userbar.zeroMute")}</p>
-        )}
-      </div>
-    </div>
-  );
-}
-
 export function VoiceDock({ onOpenSettings }: { onOpenSettings: () => void }) {
   const { t } = useTranslation();
+  const [volumePanel, setVolumePanel] = useState<"mic" | "output" | null>(null);
   const {
     self,
     selfTalking,
@@ -82,6 +45,10 @@ export function VoiceDock({ onOpenSettings }: { onOpenSettings: () => void }) {
 
   const inLobby = self.channelId === rootChannelId;
   const channelName = channels[self.channelId]?.name ?? self.name;
+
+  const closeVolume = (panel: "mic" | "output") => {
+    setVolumePanel((current) => (current === panel ? null : current));
+  };
 
   return (
     <div
@@ -109,13 +76,30 @@ export function VoiceDock({ onOpenSettings }: { onOpenSettings: () => void }) {
       </div>
 
       <div className="flex shrink-0 items-center gap-1">
-        <div className="group">
+        <div
+          className="relative"
+          onPointerEnter={(event) => {
+            if (event.pointerType === "mouse") setVolumePanel("mic");
+          }}
+          onPointerLeave={(event) => {
+            if (event.pointerType === "mouse") closeVolume("mic");
+          }}
+          onFocusCapture={() => setVolumePanel("mic")}
+          onBlurCapture={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node)) {
+              closeVolume("mic");
+            }
+          }}
+        >
           <IconButton
             label={selfMuted ? t("userbar.unmute") : t("userbar.mute")}
             aria-pressed={selfMuted}
             aria-keyshortcuts={formatAriaShortcut(muteShortcut)}
             data-testid="voice-mute"
-            onClick={() => setSelfMute(!selfMuted)}
+            onClick={() => {
+              setSelfMute(!selfMuted);
+              setVolumePanel(null);
+            }}
             className={cn(
               "size-11 md:size-10",
               selfMuted ? "text-danger hover:text-danger-soft" : "text-fg",
@@ -123,21 +107,41 @@ export function VoiceDock({ onOpenSettings }: { onOpenSettings: () => void }) {
           >
             {selfMuted ? <MicOff className="size-5" /> : <Mic className="size-5" />}
           </IconButton>
-          <HoverVolumePanel
+          <VoiceVolumePanel
+            open={volumePanel === "mic"}
             label={t("userbar.micLevel")}
             value={micGain}
             max={2}
             onChange={setMicGain}
+            icon={<Mic className="size-3.5" />}
+            testId="voice-dock-mic-volume"
           />
         </div>
 
-        <div className="group">
+        <div
+          className="relative"
+          onPointerEnter={(event) => {
+            if (event.pointerType === "mouse") setVolumePanel("output");
+          }}
+          onPointerLeave={(event) => {
+            if (event.pointerType === "mouse") closeVolume("output");
+          }}
+          onFocusCapture={() => setVolumePanel("output")}
+          onBlurCapture={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node)) {
+              closeVolume("output");
+            }
+          }}
+        >
           <IconButton
             label={selfDeafened ? t("userbar.undeafen") : t("userbar.deafen")}
             aria-pressed={selfDeafened}
             aria-keyshortcuts={formatAriaShortcut(deafenShortcut)}
             data-testid="voice-deafen"
-            onClick={() => setSelfDeaf(!selfDeafened)}
+            onClick={() => {
+              setSelfDeaf(!selfDeafened);
+              setVolumePanel(null);
+            }}
             className={cn(
               "size-11 md:size-10",
               selfDeafened ? "text-danger hover:text-danger-soft" : "text-fg",
@@ -149,11 +153,14 @@ export function VoiceDock({ onOpenSettings }: { onOpenSettings: () => void }) {
               <Headphones className="size-5" />
             )}
           </IconButton>
-          <HoverVolumePanel
+          <VoiceVolumePanel
+            open={volumePanel === "output"}
             label={t("userbar.outputLevel")}
             value={outputVolume}
             max={1.5}
             onChange={setOutputVolume}
+            icon={<Headphones className="size-3.5" />}
+            testId="voice-dock-output-volume"
           />
         </div>
 

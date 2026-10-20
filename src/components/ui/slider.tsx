@@ -11,9 +11,10 @@ function Slider({
   value,
   min = 0,
   max = 100,
+  compact = false,
   "aria-label": ariaLabel,
   ...props
-}: React.ComponentProps<typeof SliderPrimitive.Root>) {
+}: React.ComponentProps<typeof SliderPrimitive.Root> & { compact?: boolean }) {
   const _values = React.useMemo(
     () =>
       Array.isArray(value)
@@ -32,8 +33,9 @@ function Slider({
       min={min}
       max={max}
       className={cn(
-        // group：悬停整条滑条时拇指放大；py 扩大可点击区域，视觉轨道仍很细
-        "group relative flex w-full touch-none select-none items-center py-1.5 data-[disabled]:opacity-40 data-[orientation=vertical]:h-full data-[orientation=vertical]:min-h-44 data-[orientation=vertical]:w-auto data-[orientation=vertical]:flex-col",
+        // group/slider：悬停整条滑条时拇指放大；py 扩大可点击区域，视觉轨道仍很细。
+        // 命名 group 避免外层语音按钮的 hover 误触发滑条动效。
+        "group/slider relative flex w-full touch-none select-none items-center py-1.5 data-[disabled]:opacity-40 data-[orientation=vertical]:h-full data-[orientation=vertical]:min-h-44 data-[orientation=vertical]:w-auto data-[orientation=vertical]:flex-col",
         className
       )}
       {...props}
@@ -41,7 +43,8 @@ function Slider({
       <SliderPrimitive.Track
         data-slot="slider-track"
         className={cn(
-          "relative grow overflow-hidden rounded-full bg-fg/10 transition-colors duration-fast data-[orientation=horizontal]:h-1 data-[orientation=horizontal]:w-full data-[orientation=vertical]:h-full data-[orientation=vertical]:w-1"
+          "relative grow overflow-hidden rounded-full bg-fg/10 transition-colors duration-fast data-[orientation=horizontal]:w-full data-[orientation=vertical]:h-full data-[orientation=vertical]:w-1",
+          compact ? "data-[orientation=horizontal]:h-[3px]" : "data-[orientation=horizontal]:h-1"
         )}
       >
         <SliderPrimitive.Range
@@ -56,7 +59,10 @@ function Slider({
           data-slot="slider-thumb"
           key={index}
           aria-label={ariaLabel}
-          className="block size-3.5 shrink-0 cursor-grab rounded-full border-0 bg-fg shadow-[0_0_0_1px_rgb(var(--overlay)/0.35)] transition-[transform,box-shadow] duration-fast ease-out group-hover:scale-125 group-hover:shadow-[0_0_0_4px_rgb(var(--mint)/0.14)] group-active:scale-125 group-active:cursor-grabbing group-focus-within:scale-125 focus-visible:scale-125 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint/60 disabled:pointer-events-none disabled:opacity-50"
+          className={cn(
+            "block shrink-0 cursor-grab rounded-full border-0 bg-fg shadow-[0_0_0_1px_rgb(var(--overlay)/0.35)] transition-[transform,box-shadow] duration-fast ease-out group-hover/slider:scale-125 group-hover/slider:shadow-[0_0_0_4px_rgb(var(--mint)/0.14)] group-active/slider:scale-125 group-active/slider:cursor-grabbing focus-visible:scale-125 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mint/60 disabled:pointer-events-none disabled:opacity-50",
+            compact ? "size-2.5" : "size-3.5"
+          )}
         />
       ))}
     </SliderPrimitive.Root>

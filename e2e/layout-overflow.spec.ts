@@ -130,27 +130,156 @@ function expectInside(inner: Rect, outer: Rect, what: string) {
   );
 }
 
-test("悬停音量面板不越出屏幕（320px）", async ({ page }) => {
-  await page.setViewportSize({ width: 320, height: 700 });
+test("悬停音量面板不越出屏幕（320×568）", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
   await mockBackend(page);
   await enterMainUI(page);
 
-  const viewport: Rect = { x: 0, y: 0, width: 320, height: 700 };
-  for (const [name, icon] of [
-    ["输入音量", "svg.lucide-mic"],
-    ["输出音量", "svg.lucide-headphones"],
+  const viewport: Rect = { x: 0, y: 0, width: 320, height: 568 };
+  for (const [name, icon, panelId] of [
+    ["输入音量", "svg.lucide-mic", "voice-dock-mic-volume"],
+    ["输出音量", "svg.lucide-headphones", "voice-dock-output-volume"],
   ]) {
-    await page.locator(`button:has(${icon})`).last().hover();
+    const button = page.locator(`button:has(${icon}):visible`).last();
+    await button.hover();
     await page.waitForTimeout(200);
-    const panel = page.locator("div.absolute.bottom-full").filter({ visible: true }).first();
+    const panel = page.getByTestId(panelId);
+    await expect(panel).toBeVisible();
     const rect = await panel.boundingBox();
     expect(rect, `${name}面板不可见`).not.toBeNull();
+    expect(rect!.width).toBe(224);
+    expect(rect!.height).toBe(44);
     expectInside(rect!, viewport, `悬停${name}面板`);
+
+    const buttonRect = await button.boundingBox();
+    expect(buttonRect).not.toBeNull();
+    const centerDelta = Math.abs(
+      rect!.x + rect!.width / 2 - (buttonRect!.x + buttonRect!.width / 2),
+    );
+    expect(centerDelta, `${name}面板未居中`).toBeLessThanOrEqual(1);
+
+    // 紧凑滑条：10px thumb / 3px track；动效仍是设置页同一套 1.25x 缩放。
+    const thumb = panel.locator('[data-slot="slider-thumb"]');
+    const track = panel.locator('[data-slot="slider-track"]');
+    expect((await thumb.boundingBox())?.width).toBe(10);
+    expect((await track.boundingBox())?.height).toBe(3);
+    expect(await thumb.evaluate((el) => getComputedStyle(el).transform)).toBe("none");
 
     // 鼠标移到滑条上时面板不能消失（旧问题：tooltip 挡住滑条并触发 mouseleave）
     await panel.locator('[data-slot="slider"]').hover();
+    await page.waitForTimeout(180);
     await expect(panel).toBeVisible();
+    expect(await thumb.evaluate((el) => getComputedStyle(el).transform)).not.toBe(
+      "none",
+    );
   }
+});
+
+for (const width of [390, 768, 1024, 1440]) {
+  test(`音量悬浮条：${width}px 居中、224×44、不出框`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 800 });
+    await mockBackend(page);
+    await enterMainUI(page);
+
+    const ids =
+      width < 768
+        ? ["voice-dock-mic-volume", "voice-dock-output-volume"]
+        : ["voice-panel-mic-volume", "voice-panel-output-volume"];
+    const icons = ["svg.lucide-mic", "svg.lucide-headphones"];
+    const viewport: Rect = { x: 0, y: 0, width, height: 800 };
+
+    for (let i = 0; i < ids.length; i++) {
+      const button = page.locator(`button:has(${icons[i]}):visible`).last();
+      await button.hover();
+      await page.waitForTimeout(150);
+      const panel = page.getByTestId(ids[i]);
+      await expect(panel).toBeVisible();
+      const rect = (await panel.boundingBox())!;
+      expect(rect.width).toBe(224);
+      expect(rect.height).toBe(44);
+      expectInside(rect, viewport, `${width}px 音量面板`);
+
+      const buttonRect = (await button.boundingBox())!;
+      expect(
+        Math.abs(rect.x + rect.width / 2 - (buttonRect.x + buttonRect.width / 2)),
+      ).toBeLessThanOrEqual(1);
+    }
+
+    expect(
+      await page.evaluate(
+        () =>
+          document.documentElement.scrollWidth -
+          document.documentElement.clientWidth,
+      ),
+    ).toBeLessThanOrEqual(0);
+  });
+}
+
+test("点击麦克风再移到耳机：只保留一个音量面板，移开后全部消失", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await mockBackend(page);
+  await enterMainUI(page);
+
+  const panelBar = page.getByTestId("voice-panel");
+  const mic = panelBar.getByTestId("voice-mute");
+  const headphones = panelBar.getByTestId("voice-deafen");
+  const micPanel = page.getByTestId("voice-panel-mic-volume");
+  const outputPanel = page.getByTestId("voice-panel-output-volume");
+
+  await mic.hover();
+  await expect(micPanel).toBeVisible();
+  await mic.click(); // 鼠标点击会留下焦点，但不应该让面板常驻
+  await expect(micPanel).toBeHidden();
+
+  await headphones.hover();
+  await expect(outputPanel).toBeVisible();
+  await expect(micPanel).toBeHidden();
+
+  await page.mouse.move(12, 320);
+  await expect(outputPanel).toBeHidden();
+});
+
+test("键盘聚焦麦克风打开浮条，Tab 进入滑条后保持", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await mockBackend(page);
+  await enterMainUI(page);
+
+  const panelBar = page.getByTestId("voice-panel");
+  const mode = panelBar.getByTestId("voice-mode");
+  const mic = panelBar.getByTestId("voice-mute");
+  const micPanel = page.getByTestId("voice-panel-mic-volume");
+
+  await mode.focus();
+  await page.keyboard.press("Tab"); // 大厅中“离开语音”禁用，下一站就是麦克风
+  await expect(mic).toBeFocused();
+  await expect(micPanel).toBeVisible();
+
+  await page.keyboard.press("Tab"); // 滑条 thumb
+  await expect(
+    micPanel.locator('[data-slot="slider-thumb"]'),
+  ).toBeFocused();
+  await expect(micPanel).toBeVisible();
+});
+
+test("320px 点击麦克风收起浮条，再悬停耳机只出现一个", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await mockBackend(page);
+  await enterMainUI(page);
+
+  const dock = page.getByTestId("voice-dock");
+  const mic = dock.getByTestId("voice-mute");
+  const headphones = dock.getByTestId("voice-deafen");
+  const micPanel = page.getByTestId("voice-dock-mic-volume");
+  const outputPanel = page.getByTestId("voice-dock-output-volume");
+
+  await mic.hover();
+  await expect(micPanel).toBeVisible();
+  await mic.click();
+  await expect(micPanel).toBeHidden();
+
+  await headphones.hover();
+  await expect(outputPanel).toBeVisible();
+  await expect(micPanel).toBeHidden();
 });
 
 for (const width of [320, 375, 1280]) {
