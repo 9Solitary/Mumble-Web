@@ -102,6 +102,8 @@ if (args.has("--history")) {
         continue;
       }
       for (const file of out.split(/\r?\n/).filter(Boolean)) {
+        // 扫描器自身包含这些规则文本，不应把历史提交里的脚本当成密钥。
+        if (file.includes("scripts/scan-secrets.mjs")) continue;
         findings.push({ scope: `commit ${commit.slice(0, 8)}`, file, line: 0, rule: "history-content" });
       }
     }
