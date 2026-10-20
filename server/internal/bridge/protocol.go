@@ -45,6 +45,7 @@ type Envelope struct {
 	// 以下字段按 type 可选填充，保持协议扁平、前端好处理。
 	Username    string `json:"username,omitempty"`
 	Password    string `json:"password,omitempty"`
+	ClientID    string `json:"clientId,omitempty"`    // connect 时可选：同一标签页的稳定标识，用于区分重连与重名
 	ServerAddr  string `json:"serverAddr,omitempty"`  // connect 时可选：覆盖代理默认上游服务器
 	InviteToken string `json:"inviteToken,omitempty"` // connect 时可选：一次性邀请 token（服务器/密码以服务端存储为准）
 	ResumeToken string `json:"resumeToken,omitempty"` // connect 时可选：断线恢复凭据（与 password/inviteToken 互斥）

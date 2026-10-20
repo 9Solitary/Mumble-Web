@@ -45,6 +45,7 @@ type Session struct {
 
 	registry        *SessionRegistry // 同名会话注册表（nil = 不启用）
 	sessionKey      string           // 上游地址 + 小写昵称
+	clientID        string           // 同一浏览器标签页的稳定标识（用于区分重连与重名）
 	takeoverPending atomic.Bool      // 有新会话正在拨号接管本会话
 
 	mu        sync.Mutex
@@ -397,6 +398,10 @@ func (s *Session) withClient(f func(*gumble.Client)) {
 //   - 携带 inviteToken：一次性邀请通道，服务器/密码以服务端存储为准
 //   - 否则：用户名+密码常规登录
 func (s *Session) handleConnect(env Envelope) {
+	// 同一标签页的重连会带同一个 clientId；不同标签页/不同人拿不到它。
+	if env.ClientID != "" {
+		s.clientID = env.ClientID
+	}
 	if env.ResumeToken != "" {
 		if s.invites == nil {
 			s.push(Envelope{Type: DownReject, Reason: "邀请功能未启用", Code: "invite_unavailable"})
@@ -458,12 +463,13 @@ func (s *Session) connectMumble(username, password, serverAddr string, trusted b
 		upstream = t
 	}
 
-	// 同名会话占位：先占位再拨号，避免两个新登录同时尝试；旧会话暂不断开。
+	// 同名会话占位：已有其他标签页/客户端在线时直接拒绝，旧会话不受影响。
+	// 同一 clientId（本标签页刷新/断线重连）仍走接管，避免正常重连被误判为重名。
 	key := registryKey(upstream.Address, username)
 	if s.registry != nil {
 		if _, ok := s.registry.Reserve(key, s); !ok {
 			releaseInvite()
-			s.push(Envelope{Type: DownReject, Reason: "已有同名会话正在登录", Code: "login_in_progress"})
+			s.push(Envelope{Type: DownReject, Reason: "这个昵称已被占用，请换一个昵称", Code: "username_in_use"})
 			return
 		}
 		s.sessionKey = key

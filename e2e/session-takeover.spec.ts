@@ -1,9 +1,8 @@
 import { expect, test, type Page, type WebSocketRoute } from "@playwright/test";
 
-// 同名会话终止态：
-// - 被顶号后前端停在终止页，不自动重连；
-// - “重新进入”可以反向接管；
-// - 两个页面不会互相无限重连。
+// 同名冲突与终止态：
+// - 不同标签页同名：后进者被拒绝并提示换昵称，先进入者保持在线；
+// - 同一标签页重连收到 session_takeover：停在终止页，不自动重连。
 
 async function mockMedia(page: Page) {
   await page.addInitScript(() => {
@@ -56,7 +55,7 @@ async function enter(page: Page, name: string) {
   await page.getByTestId("connect-submit").click();
 }
 
-test("被顶号后停在终止页，不自动重连；重新进入可反向接管", async ({ page }) => {
+test("收到 session_takeover：停在终止页，不自动重连；重新进入可恢复", async ({ page }) => {
   await mockMedia(page);
   let connects = 0;
   let kicked = false;
@@ -103,65 +102,68 @@ test("被顶号后停在终止页，不自动重连；重新进入可反向接�
   expect(connects).toBe(2);
 });
 
-test("两个页面同名：后进者接管，先进入者停止重连", async ({ browser }) => {
+test("两个页面同名：后进者被拒绝并提示换昵称，先进入者保持在线", async ({ browser }) => {
   const context = await browser.newContext();
   const pageA = await context.newPage();
   const pageB = await context.newPage();
   await mockMedia(pageA);
   await mockMedia(pageB);
 
-  let active: "a" | "b" | null = null;
-  const sockets: Partial<Record<"a" | "b", WebSocketRoute>> = {};
-  const connects: Record<"a" | "b", number> = { a: 0, b: 0 };
+  let aOnline = false;
+  let connectsA = 0;
+  let connectsB = 0;
 
-  const setup = (page: Page, key: "a" | "b") => {
-    page.routeWebSocket("**/ws", (ws) => {
-      connects[key]++;
-      sockets[key] = ws;
-      ws.send(HELLO(`page-${key}-${connects[key]}`));
-      ws.onMessage((raw) => {
-        const env = JSON.parse(String(raw));
-        if (env.type !== "connect") return;
-
-        // 新登录顶掉当前 active
-        if (active && active !== key) {
-          const prev = sockets[active];
-          prev?.send(
-            JSON.stringify({
-              type: "disconnected",
-              reason: "another session signed in with this name",
-              code: "session_takeover",
-            }),
-          );
-          prev?.close({ code: 4001, reason: "session takeover" });
-        }
-        active = key;
-        loginSequence(ws, env.username ?? key);
-      });
+  pageA.routeWebSocket("**/ws", (ws) => {
+    connectsA++;
+    ws.send(HELLO(`page-a-${connectsA}`));
+    ws.onMessage((raw) => {
+      const env = JSON.parse(String(raw));
+      if (env.type !== "connect") return;
+      aOnline = true;
+      loginSequence(ws, env.username ?? "同名两人");
     });
-  };
+  });
 
-  setup(pageA, "a");
-  setup(pageB, "b");
+  pageB.routeWebSocket("**/ws", (ws) => {
+    connectsB++;
+    ws.send(HELLO(`page-b-${connectsB}`));
+    ws.onMessage((raw) => {
+      const env = JSON.parse(String(raw));
+      if (env.type !== "connect") return;
+      if (aOnline) {
+        // 新策略：同名在线时不接管旧会话，直接拒绝新登录。
+        ws.send(
+          JSON.stringify({
+            type: "reject",
+            code: "username_in_use",
+            reason: "这个昵称已被占用",
+          }),
+        );
+        return;
+      }
+      aOnline = true;
+      loginSequence(ws, env.username ?? "同名两人");
+    });
+  });
 
   await enter(pageA, "同名两人");
   await expect(pageA.getByTestId("messages")).toBeVisible({ timeout: 10_000 });
-  expect(active).toBe("a");
+  expect(aOnline).toBe(true);
 
   await enter(pageB, "同名两人");
-  await expect(pageB.getByTestId("messages")).toBeVisible({ timeout: 10_000 });
-  expect(active).toBe("b");
+  await expect(
+    pageB.getByRole("heading", { name: "这个昵称已经被占用" }),
+  ).toBeVisible({ timeout: 10_000 });
+  const endedB = pageB.getByTestId("session-ended");
+  await expect(endedB).toContainText("另一个客户端");
+  await expect(endedB.getByTestId("session-change-name")).toBeVisible();
+  await expect(endedB.getByTestId("session-retry")).toHaveCount(0);
 
-  await expect(pageA.getByText("这个昵称在另一处登录了")).toBeVisible();
-  await pageA.waitForTimeout(1500);
-  expect(connects.a, "被顶页面不应自动重连").toBe(1);
-
-  // A 重新进入，反向接管 B
-  await pageA.getByRole("button", { name: "重新进入" }).click();
-  await expect(pageA.getByTestId("messages")).toBeVisible({ timeout: 10_000 });
-  expect(active).toBe("a");
-  await expect(pageB.getByText("这个昵称在另一处登录了")).toBeVisible();
-  expect(connects.a).toBe(2);
+  await pageB.waitForTimeout(1500);
+  expect(connectsB, "被拒绝页面不应自动重连").toBe(1);
+  expect(connectsA, "先进入页面不应被顶").toBe(1);
+  await expect(pageA.getByTestId("messages")).toBeVisible();
+  await expect(pageA.getByTestId("connection-pill")).toContainText("已连接");
 
   await context.close();
 });

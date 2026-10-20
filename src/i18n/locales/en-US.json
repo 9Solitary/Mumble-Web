@@ -111,7 +111,7 @@
     "bannedTitle": "You are banned from this server",
     "bannedBody": "This name cannot rejoin. Contact the server administrator.",
     "flapTitle": "The connection keeps dropping",
-    "flapBody": "The session connected and dropped several times in a row. This can happen with a duplicate name or a server limit. Auto-reconnect has stopped.",
+    "flapBody": "The session connected and dropped several times in a row. This can happen with a server limit or network issue. Auto-reconnect has stopped.",
     "retry": "Rejoin",
     "retryHint": "Takes over the other session",
     "changeName": "Use another name",

@@ -12,6 +12,7 @@ import { createBackoff } from "@/lib/reconnect";
 import { logEvent } from "@/lib/diagnostics";
 import { NoiseGate } from "@/lib/noiseGate";
 import { computeMicGate } from "@/lib/micGate";
+import { getClientId } from "@/lib/clientId";
 import { CLIENT_ERROR_CODES, isSessionEndCode } from "@/lib/errorMessages";
 
 export type ConnState =
@@ -26,7 +27,7 @@ export type ConnState =
 // 连续重连失败上限：超过后置 failed，由用户手动重试
 const MAX_RECONNECT_ATTEMPTS = 10;
 
-// 抖动保护：短连接反复出现时停止重连，避免同名互踢无限循环。
+// 抖动保护：短连接反复出现时停止重连，避免异常短连接无限循环。
 const FLAP_WINDOW_MS = 60_000;
 const FLAP_SHORT_MS = 15_000;
 const FLAP_LIMIT = 3;
@@ -238,23 +239,26 @@ export const useAppStore = create<AppState>((set, get) => {
 
   // ---- 自动重连 ----
 
-  // 构造 connect 信封：邀请用户优先用 resumeToken（契约 3，与 password/inviteToken 互斥）
+  // 构造 connect 信封：邀请用户优先用 resumeToken（契约 3，与 password/inviteToken 互斥）。
+  // clientId 每个标签页稳定：服务端据此区分“自己重连”和“别人同名登录”。
   const buildConnectEnvelope = (): Envelope | null => {
+    const clientId = getClientId();
     if (resumeToken && savedCreds) {
-      return { type: "connect", username: savedCreds.username, resumeToken };
+      return { type: "connect", username: savedCreds.username, clientId, resumeToken };
     }
     if (!savedCreds) return null;
     const { username, password, serverAddr, inviteToken } = savedCreds;
     return {
       type: "connect",
       username,
+      clientId,
       ...(inviteToken
         ? { inviteToken }
         : { password, ...(serverAddr ? { serverAddr } : {}) }),
     };
   };
 
-  // 终止态：被顶/被踢/抖动保护。保留内存凭据供“重新进入”，但不再自动重连。
+  // 终止态：被接管/被踢/抖动保护。保留内存凭据供“重新进入”，但不再自动重连。
   const endSession = (code: string, detail: string) => {
     if (get().connState === "ended") return;
     suspendReconnect = true;
@@ -296,7 +300,7 @@ export const useAppStore = create<AppState>((set, get) => {
       return;
     }
 
-    // 抖动保护：15s 内连上又断，60s 内出现 3 次就停下，避免同名互踢无限循环。
+    // 抖动保护：15s 内连上又断，60s 内出现 3 次就停下，避免异常短连接无限重连。
     if (connectedAt) {
       const now = Date.now();
       if (now - connectedAt < FLAP_SHORT_MS) {

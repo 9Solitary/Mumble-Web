@@ -90,6 +90,8 @@ describe("appStore 重连状态机", () => {
     await login(ws1);
     expect(useAppStore.getState().connState).toBe("ready");
     expect(ws1.lastSent()).toMatchObject({ type: "connect", username: "alice", password: "pw123" });
+    const firstClientId = ws1.lastSent().clientId;
+    expect(firstClientId, "connect 应带标签页 clientId").toBeTruthy();
 
     // 1006 异常断开 → 进入重连
     ws1.drop(1006);
@@ -104,6 +106,7 @@ describe("appStore 重连状态机", () => {
     await flush(); // onopen
     const env = ws2.lastSent();
     expect(env).toMatchObject({ type: "connect", username: "alice", password: "pw123" });
+    expect(env.clientId).toBe(firstClientId);
     expect(env.resumeToken).toBeUndefined();
 
     // 重连成功 → 状态恢复，计数器累计
@@ -238,6 +241,27 @@ describe("appStore 重连状态机", () => {
 
     // 关闭 WS 也不应再发起重连
     ws1.drop(4001);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(MockWS.instances).toHaveLength(1);
+    expect(useAppStore.getState().connState).toBe("ended");
+  });
+
+  it("重名被拒绝：进入 ended，不再自动重连", async () => {
+    useAppStore.getState().connect("alice", "pw123");
+    const ws1 = MockWS.instances[0];
+    await flush();
+    ws1.deliver(HELLO);
+    ws1.deliver({
+      type: "reject",
+      reason: "这个昵称已被占用",
+      code: "username_in_use",
+    });
+
+    const state = useAppStore.getState();
+    expect(state.connState).toBe("ended");
+    expect(state.endCode).toBe("username_in_use");
+    expect(state.endDetail).toContain("昵称已被占用");
+
     await vi.advanceTimersByTimeAsync(60_000);
     expect(MockWS.instances).toHaveLength(1);
     expect(useAppStore.getState().connState).toBe("ended");

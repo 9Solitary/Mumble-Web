@@ -27,11 +27,13 @@ describe("protocol 信封", () => {
       type: "connect",
       username: "alice",
       password: "pw",
+      clientId: "tab-1",
       serverAddr: "example.com:64738",
     };
     const round = JSON.parse(JSON.stringify(env)) as Envelope;
     expect(round.type).toBe("connect");
     expect(round.username).toBe("alice");
+    expect(round.clientId).toBe("tab-1");
     expect(round.serverAddr).toBe("example.com:64738");
   });
 

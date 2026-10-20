@@ -113,7 +113,7 @@ func main() {
 
 	diag := newDiagSink(*diagDir)
 
-	// 同名会话注册表：代理内部做确定性接管，避免两个页面互相顶造成无限重连。
+	// 同名会话注册表：代理内部拒绝重名新登录，同标签页重连才允许接管，避免互踢。
 	registry := bridge.NewSessionRegistry()
 
 	mux := http.NewServeMux()

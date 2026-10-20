@@ -57,6 +57,7 @@ export interface Envelope {
   version?: string; // hello 信封：代理版本（git sha 或 dev）
   username?: string;
   password?: string;
+  clientId?: string; // connect：同一标签页的稳定标识（服务端区分重连与重名）
   serverAddr?: string; // connect 时可选：覆盖代理默认上游服务器
   inviteToken?: string; // connect 时可选：一次性邀请 token（服务器/密码以服务端存储为准）
   resumeToken?: string; // connect 时可选：断线恢复 token（与 password/inviteToken 互斥）
