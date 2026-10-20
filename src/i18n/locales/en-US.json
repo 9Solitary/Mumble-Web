@@ -224,6 +224,7 @@
       "unavailable": "-"
     },
     "about": {
+      "webVersion": "Web version",
       "version": "Proxy version",
       "server": "Server",
       "unknown": "Unknown",

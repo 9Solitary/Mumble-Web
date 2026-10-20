@@ -32,6 +32,10 @@ test("设置：1024×576 六个 Tab 都能打开，底栏始终可见", async ({
     await expect(dialog.getByRole("button", { name: "完成" })).toBeVisible();
     await expect(dialog.getByTestId("settings-reset")).toBeVisible();
   }
+
+  await expect(dialog.getByTestId("about-web-version")).toHaveText(
+    /^\d+\.\d+\.\d+/,
+  );
 });
 
 test("设置：改动后显示“已保存”，刷新后值保持", async ({ page }) => {

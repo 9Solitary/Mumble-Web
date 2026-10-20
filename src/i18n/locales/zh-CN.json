@@ -224,6 +224,7 @@
       "unavailable": "-"
     },
     "about": {
+      "webVersion": "Web 版本",
       "version": "代理版本",
       "server": "服务器",
       "unknown": "未知",

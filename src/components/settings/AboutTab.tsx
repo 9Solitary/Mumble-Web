@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Info, LogOut } from "lucide-react";
 
 import { useAppStore } from "@/store/appStore";
+import { APP_VERSION } from "@/lib/appVersion";
 import { apiUrl } from "@/lib/backend";
 import { getSession } from "@/lib/diagnostics";
 
@@ -41,6 +42,15 @@ export function AboutTab({ onClose }: { onClose: () => void }) {
       </div>
 
       <dl className="mt-4 border-t border-line">
+        <div className="flex items-center justify-between gap-4 border-b border-line py-3 text-xs">
+          <dt className="text-fg-subtle">{t("settings.about.webVersion")}</dt>
+          <dd
+            data-testid="about-web-version"
+            className="min-w-0 truncate font-mono text-[11px] text-fg-muted"
+          >
+            {APP_VERSION}
+          </dd>
+        </div>
         <div className="flex items-center justify-between gap-4 border-b border-line py-3 text-xs">
           <dt className="text-fg-subtle">{t("settings.about.version")}</dt>
           <dd className="min-w-0 truncate font-mono text-[11px] text-fg-muted">
