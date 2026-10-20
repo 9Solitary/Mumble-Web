@@ -360,4 +360,33 @@ test.describe("英文 320px / 邀请页", () => {
     await expect(page.getByLabel("Port")).toHaveCount(0);
     await expectNoHorizontalScroll(page);
   });
+
+  test("英文 320px：语音坞、成员与频道抽屉不溢出", async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 568 });
+    await enterApp(page, "English mobile", "/?lang=en");
+    await expect(page.getByTestId("voice-dock-status")).toBeHidden();
+
+    await page.getByTestId("chat-open-members").click();
+    const sheet = page.locator('[data-slot="sheet-content"]');
+    await expect(sheet).toBeVisible();
+    await page.waitForTimeout(600);
+    await expect(sheet.getByPlaceholder("Search members")).toBeVisible();
+    await expect(
+      sheet.getByText("Online", { exact: true }).first(),
+    ).toBeVisible();
+    const memberBox = await sheet.boundingBox();
+    expect(memberBox?.x ?? 0).toBeGreaterThanOrEqual(0);
+    expect((memberBox?.x ?? 0) + (memberBox?.width ?? 0)).toBeLessThanOrEqual(320);
+    await expectNoHorizontalScroll(page);
+    await page.keyboard.press("Escape");
+    await expect(sheet).toBeHidden();
+
+    await page.getByRole("button", { name: "Channels" }).click();
+    await expect(sheet).toBeVisible();
+    await expect(page.getByRole("dialog")).toContainText("Channels");
+    await page.waitForTimeout(600);
+    await expectNoHorizontalScroll(page);
+    await page.keyboard.press("Escape");
+    await expect(sheet).toBeHidden();
+  });
 });

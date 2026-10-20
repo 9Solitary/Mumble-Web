@@ -76,6 +76,12 @@ test("390px：聊天、静音、频道抽屉加入、离开、设置可用", asy
   await expect(page.getByTestId("channel-sidebar")).toBeHidden();
   await expect(page.getByRole("button", { name: "频道" })).toBeVisible();
 
+  // 语音坞显示当前频道与语音状态
+  const dockStatus = page.getByTestId("voice-dock-status");
+  await expect(dockStatus).toBeVisible();
+  await expect(dockStatus).toContainText("根频道");
+  await expect(dockStatus).toContainText("自由发言");
+
   const composer = await page.getByTestId("composer-input").boundingBox();
   expect(composer?.width).toBeGreaterThan(180);
 
@@ -117,6 +123,7 @@ test("320px：无横向滚动，语音坞四个操作都是 44px 且在视口内
   await enterApp(page);
 
   expect(await noHorizontalScroll(page)).toBeLessThanOrEqual(0);
+  await expect(page.getByTestId("voice-dock-status")).toBeHidden();
   const composer = await page.getByTestId("composer-input").boundingBox();
   expect(composer?.width).toBeGreaterThan(150);
 
@@ -172,6 +179,50 @@ test("可见按钮都有可访问名称", async ({ page }) => {
   );
 
   expect(unnamed, JSON.stringify(unnamed, null, 2)).toHaveLength(0);
+});
+
+test("390px：左右边缘滑动打开频道/成员抽屉", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await enterApp(page);
+
+  const shell = page.getByTestId("app-shell");
+  const sheet = page.locator('[data-slot="sheet-content"]');
+
+  await shell.dispatchEvent("pointerdown", {
+    pointerId: 1,
+    pointerType: "touch",
+    clientX: 5,
+    clientY: 420,
+  });
+  await shell.dispatchEvent("pointerup", {
+    pointerId: 1,
+    pointerType: "touch",
+    clientX: 150,
+    clientY: 424,
+  });
+  await expect(sheet).toBeVisible();
+  await expect(page.getByRole("dialog")).toContainText("频道");
+  await page.keyboard.press("Escape");
+  await expect(sheet).toBeHidden();
+
+  await shell.dispatchEvent("pointerdown", {
+    pointerId: 2,
+    pointerType: "touch",
+    clientX: 385,
+    clientY: 420,
+  });
+  await shell.dispatchEvent("pointerup", {
+    pointerId: 2,
+    pointerType: "touch",
+    clientX: 240,
+    clientY: 424,
+  });
+  await expect(sheet).toBeVisible();
+  await expect(page.getByRole("dialog")).toContainText("成员");
+  await page.keyboard.press("Escape");
+  await expect(sheet).toBeHidden();
+
+  expect(await noHorizontalScroll(page)).toBeLessThanOrEqual(0);
 });
 
 for (const [width, height] of [

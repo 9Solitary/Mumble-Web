@@ -69,6 +69,7 @@ export async function mockProxy(page: Page) {
             { id: 0, parentId: -1, name: "根频道", description: "", position: 0, temporary: false },
             { id: 1, parentId: 0, name: "闲聊", description: "", position: 1, temporary: false },
             { id: 2, parentId: 0, name: "开黑房", description: "", position: 2, temporary: false },
+            { id: 3, parentId: 2, name: "公告", description: "", position: 3, temporary: false },
           ]) {
             ws.send(JSON.stringify({ type: "channel", channel }));
           }
@@ -86,6 +87,41 @@ export async function mockProxy(page: Page) {
                 selfDeafened: false,
                 prioritySpeaker: false,
                 registered: true,
+                comment: "负责提醒和欢迎",
+              },
+            }),
+          );
+          ws.send(
+            JSON.stringify({
+              type: "user",
+              user: {
+                session: 3,
+                name: "沉默用户",
+                channelId: 1,
+                muted: false,
+                deafened: false,
+                suppressed: false,
+                selfMuted: true,
+                selfDeafened: false,
+                prioritySpeaker: false,
+                registered: false,
+              },
+            }),
+          );
+          ws.send(
+            JSON.stringify({
+              type: "user",
+              user: {
+                session: 4,
+                name: "开黑用户",
+                channelId: 2,
+                muted: false,
+                deafened: false,
+                suppressed: false,
+                selfMuted: false,
+                selfDeafened: false,
+                prioritySpeaker: false,
+                registered: false,
               },
             }),
           );

@@ -13,7 +13,10 @@ async function mockMedia(page: Page) {
   });
 }
 
-async function mockBackend(page: Page) {
+async function mockBackend(
+  page: Page,
+  initialMessages: { message: string; time: number }[] = [],
+) {
   await page.routeWebSocket("**/ws", (ws) => {
     ws.send(
       JSON.stringify({
@@ -56,6 +59,20 @@ async function mockBackend(page: Page) {
             config: { maxMessageLength: 5000, maxImageMessageLength: 131072 },
           }),
         );
+        for (const initial of initialMessages) {
+          ws.send(
+            JSON.stringify({
+              type: "textMessage",
+              text: {
+                sender: 2,
+                senderName: "聊天测试",
+                channelIds: [0],
+                message: initial.message,
+                time: initial.time,
+              },
+            }),
+          );
+        }
         ws.send(JSON.stringify({ type: "synced" }));
       }
       if (env.type === "sendText") {
@@ -76,9 +93,9 @@ async function mockBackend(page: Page) {
   });
 }
 
-async function enter(page: Page) {
-  await page.goto("/");
-  await page.getByLabel(/用户名/).fill("聊天测试");
+async function enter(page: Page, path = "/") {
+  await page.goto(path);
+  await page.getByTestId("connect-username").fill("聊天测试");
   await page.getByTestId("connect-submit").click();
   await expect(page.getByTestId("messages")).toBeVisible();
   return page.getByTestId("composer-input");
@@ -159,6 +176,201 @@ test("图片点击打开查看器，Esc 关闭", async ({ page }) => {
   await expect
     .poll(async () => (await image.boundingBox())?.width ?? 0)
     .toBeGreaterThan(before);
+
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+});
+
+test("多图切换、移动工具条、双指缩放与左右滑动", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockMedia(page);
+
+  const svgA = Buffer.from(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100" height="100" fill="#1f6f5c"/></svg>',
+  ).toString("base64");
+  const svgB = Buffer.from(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100" height="100" fill="#6f5c1f"/></svg>',
+  ).toString("base64");
+  await mockBackend(page, [
+    {
+      message: `<img src="data:image/svg+xml;base64,${svgA}"/><img src="data:image/svg+xml;base64,${svgB}"/>`,
+      time: Math.floor(Date.now() / 1000),
+    },
+  ]);
+  await enter(page);
+
+  const thumbs = page.getByRole("button", { name: "查看大图" });
+  await expect(thumbs).toHaveCount(2);
+  await thumbs.first().click();
+
+  const dialog = page.getByRole("dialog", { name: "图片查看器" });
+  await expect(dialog).toBeVisible();
+  await page.waitForTimeout(400);
+  const counter = page.getByTestId("lightbox-counter");
+  await expect(counter).toHaveText("1 / 2");
+
+  const toolbarButtons = page
+    .getByTestId("lightbox-toolbar")
+    .locator("button:visible");
+  await expect(toolbarButtons).toHaveCount(5);
+  for (const box of await toolbarButtons.evaluateAll((elements) =>
+    elements.map((element) => {
+      const rect = element.getBoundingClientRect();
+      return {
+        label: element.getAttribute("aria-label"),
+        x: rect.x,
+        right: rect.right,
+        height: rect.height,
+      };
+    }),
+  )) {
+    expect(box.height).toBeGreaterThanOrEqual(44);
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.right).toBeLessThanOrEqual(390);
+  }
+
+  await dialog.getByRole("button", { name: "下一张" }).click();
+  await expect(counter).toHaveText("2 / 2");
+  await dialog.getByRole("button", { name: "上一张" }).click();
+  await expect(counter).toHaveText("1 / 2");
+
+  const image = dialog.getByRole("img", { name: "图片查看器" });
+  await expect
+    .poll(async () => (await image.boundingBox())?.width ?? 0)
+    .toBeGreaterThan(200);
+  const before = (await image.boundingBox())!.width;
+
+  // 双指捏合放大
+  const viewport = page.getByTestId("lightbox-viewport");
+  const box = (await viewport.boundingBox())!;
+  const centerX = box.x + box.width / 2;
+  const centerY = box.y + box.height / 2;
+  await viewport.dispatchEvent("pointerdown", {
+    pointerId: 1,
+    pointerType: "touch",
+    isPrimary: true,
+    clientX: centerX - 50,
+    clientY: centerY,
+  });
+  await viewport.dispatchEvent("pointerdown", {
+    pointerId: 2,
+    pointerType: "touch",
+    clientX: centerX + 50,
+    clientY: centerY,
+  });
+  await viewport.dispatchEvent("pointermove", {
+    pointerId: 2,
+    pointerType: "touch",
+    clientX: centerX + 100,
+    clientY: centerY,
+  });
+  await expect
+    .poll(async () => (await image.boundingBox())?.width ?? 0)
+    .toBeGreaterThan(before);
+  await viewport.dispatchEvent("pointerup", {
+    pointerId: 2,
+    pointerType: "touch",
+    clientX: centerX + 100,
+    clientY: centerY,
+  });
+  await viewport.dispatchEvent("pointerup", {
+    pointerId: 1,
+    pointerType: "touch",
+    clientX: centerX - 50,
+    clientY: centerY,
+  });
+
+  // 回到适应屏幕后，向左滑动切到下一张
+  await dialog.getByRole("button", { name: "适应屏幕" }).click();
+  await viewport.dispatchEvent("pointerdown", {
+    pointerId: 3,
+    pointerType: "touch",
+    clientX: centerX + 80,
+    clientY: centerY,
+  });
+  await viewport.dispatchEvent("pointermove", {
+    pointerId: 3,
+    pointerType: "touch",
+    clientX: centerX - 80,
+    clientY: centerY + 4,
+  });
+  await viewport.dispatchEvent("pointerup", {
+    pointerId: 3,
+    pointerType: "touch",
+    clientX: centerX - 80,
+    clientY: centerY + 4,
+  });
+  await expect(counter).toHaveText("2 / 2");
+
+  // 320px 下工具条仍在视口内
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.waitForTimeout(200);
+  const smallButtons = page
+    .getByTestId("lightbox-toolbar")
+    .locator("button:visible");
+  await expect(smallButtons).toHaveCount(5);
+  for (const small of await smallButtons.evaluateAll((elements) =>
+    elements.map((element) => {
+      const rect = element.getBoundingClientRect();
+      return { x: rect.x, right: rect.right, height: rect.height };
+    }),
+  )) {
+    expect(small.height).toBeGreaterThanOrEqual(44);
+    expect(small.x).toBeGreaterThanOrEqual(0);
+    expect(small.right).toBeLessThanOrEqual(320);
+  }
+  expect(
+    await page.evaluate(
+      () =>
+        document.documentElement.scrollWidth -
+        document.documentElement.clientWidth,
+    ),
+  ).toBeLessThanOrEqual(0);
+
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+});
+
+test("英文 320px：图片查看器工具条不溢出", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await mockMedia(page);
+  const svg = Buffer.from(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100" height="100" fill="#1f6f5c"/></svg>',
+  ).toString("base64");
+  await mockBackend(page, [
+    {
+      message: `<img src="data:image/svg+xml;base64,${svg}"/>`,
+      time: Math.floor(Date.now() / 1000),
+    },
+  ]);
+  await enter(page, "/?lang=en");
+
+  await page.getByRole("button", { name: "View image" }).click();
+  const dialog = page.getByRole("dialog", { name: "Image viewer" });
+  await expect(dialog).toBeVisible();
+  await page.waitForTimeout(400);
+
+  const buttons = page
+    .getByTestId("lightbox-toolbar")
+    .locator("button:visible");
+  await expect(buttons).toHaveCount(5);
+  for (const box of await buttons.evaluateAll((elements) =>
+    elements.map((element) => {
+      const rect = element.getBoundingClientRect();
+      return { x: rect.x, right: rect.right, height: rect.height };
+    }),
+  )) {
+    expect(box.height).toBeGreaterThanOrEqual(44);
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.right).toBeLessThanOrEqual(320);
+  }
+  expect(
+    await page.evaluate(
+      () =>
+        document.documentElement.scrollWidth -
+        document.documentElement.clientWidth,
+    ),
+  ).toBeLessThanOrEqual(0);
 
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
