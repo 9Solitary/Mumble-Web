@@ -10,6 +10,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "test:e2e:cross": "playwright test --config=playwright.crossbrowser.config.ts --workers=2",
     "i18n:check": "node scripts/check-i18n.mjs",
     "preview": "vite preview"
   },

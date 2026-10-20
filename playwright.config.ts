@@ -4,6 +4,8 @@ import { defineConfig, devices } from "@playwright/test";
 // 回归测试套件在阶段 1 补充，当前仅 smoke。
 export default defineConfig({
   testDir: "e2e",
+  // 跨浏览器冒烟有独立配置，避免默认 Chromium 套件重复跑。
+  testIgnore: ["**/cross-browser.spec.ts"],
   timeout: 30_000,
   retries: 0,
   use: {
