@@ -26,9 +26,12 @@ function manualChunks(id: string): string | undefined {
   return undefined;
 }
 
-// https://vite.dev/config/
+// Vite 以站点根路径发布：SPA 嵌套路由（如 /invite/<token>）必须使用绝对
+// asset URL，否则浏览器会把 ./assets 解析成 /invite/assets，nginx 的 SPA
+// 回退又会把 index.html 当 JS/CSS 返回，最终白屏/黑屏。当前部署不支持子路径；
+// 若未来支持，需要同时配置 Router basename 与这里的 base。
 export default defineConfig({
-  base: './',
+  base: "/",
   plugins: [inspectAttr(), react()],
   define: {
     __APP_VERSION__: JSON.stringify(packageJson.version),

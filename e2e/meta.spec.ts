@@ -7,11 +7,11 @@ test("index.html 带 favicon、manifest、theme-color 和描述", async ({ page,
   await expect(page.locator('html[lang="zh-CN"]')).toHaveCount(1);
   await expect(page.locator('link[rel="icon"][type="image/svg+xml"]')).toHaveAttribute(
     "href",
-    "./favicon.svg",
+    "/favicon.svg",
   );
   await expect(page.locator('link[rel="manifest"]')).toHaveAttribute(
     "href",
-    "./site.webmanifest",
+    "/site.webmanifest",
   );
   await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute(
     "content",
@@ -41,7 +41,7 @@ test("index.html 带 favicon、manifest、theme-color 和描述", async ({ page,
 
   const sizes = await page.evaluate(async () => {
     const image = new Image();
-    image.src = "./icon-192.png";
+    image.src = "/icon-192.png";
     await image.decode();
     return { w: image.naturalWidth, h: image.naturalHeight };
   });
