@@ -23,20 +23,23 @@ const (
 	DownError       = "error"
 	DownConfig      = "config"       // 服务器配置（消息长度限制等）
 	DownResumeToken = "resume_token" // 邀请/恢复登录成功后下发断线恢复凭据
+	DownInvite      = "invite"       // createInvite 成功：token/url/expiresAt
+	DownInviteError = "inviteError"  // createInvite 失败：code 为 invite_*，不混入连接级 error
 )
 
 // ---- 上行消息（browser -> proxy） ----
 
 const (
-	UpConnect     = "connect" // {username, password} 或 {username, inviteToken}（一次性邀请）
-	UpJoinChannel = "joinChannel"
-	UpSendText    = "sendText"
-	UpSelfMute    = "setSelfMute"
-	UpSelfDeaf    = "setSelfDeaf"
-	UpPtt         = "ptt" // {active: bool} 转发麦克风开关
-	UpRtcAnswer   = "rtcAnswer"
-	UpRtcIce      = "rtcCandidate"
-	UpDisconnect  = "disconnect"
+	UpConnect      = "connect" // {username, password} 或 {username, inviteToken}（一次性邀请）
+	UpCreateInvite = "createInvite"
+	UpJoinChannel  = "joinChannel"
+	UpSendText     = "sendText"
+	UpSelfMute     = "setSelfMute"
+	UpSelfDeaf     = "setSelfDeaf"
+	UpPtt          = "ptt" // {active: bool} 转发麦克风开关
+	UpRtcAnswer    = "rtcAnswer"
+	UpRtcIce       = "rtcCandidate"
+	UpDisconnect   = "disconnect"
 )
 
 // Envelope 是所有 WS 消息的统一封装。
@@ -49,14 +52,18 @@ type Envelope struct {
 	ServerAddr  string `json:"serverAddr,omitempty"`  // connect 时可选：覆盖代理默认上游服务器
 	InviteToken string `json:"inviteToken,omitempty"` // connect 时可选：一次性邀请 token（服务器/密码以服务端存储为准）
 	ResumeToken string `json:"resumeToken,omitempty"` // connect 时可选：断线恢复凭据（与 password/inviteToken 互斥）
-	Session     uint32 `json:"session,omitempty"`
-	ChannelID   uint32 `json:"channelId,omitempty"`
-	Message     string `json:"message,omitempty"`
-	Active      *bool  `json:"active,omitempty"`
-	Mute        *bool  `json:"mute,omitempty"`
-	Deaf        *bool  `json:"deaf,omitempty"`
-	Reason      string `json:"reason,omitempty"`
-	Code        string `json:"code,omitempty"` // reject/disconnected：稳定错误码，前端按 code 翻译
+	// hello 下发：当前部署是否允许已登录用户在网页里创建邀请
+	InviteEnabled bool `json:"inviteEnabled,omitempty"`
+	// connected 下发：本会话是否由邀请/恢复凭据建立（受邀用户不能继续邀请）
+	Invited   bool   `json:"invited,omitempty"`
+	Session   uint32 `json:"session,omitempty"`
+	ChannelID uint32 `json:"channelId,omitempty"`
+	Message   string `json:"message,omitempty"`
+	Active    *bool  `json:"active,omitempty"`
+	Mute      *bool  `json:"mute,omitempty"`
+	Deaf      *bool  `json:"deaf,omitempty"`
+	Reason    string `json:"reason,omitempty"`
+	Code      string `json:"code,omitempty"` // reject/disconnected：稳定错误码，前端按 code 翻译
 
 	// hello 下发：会话标识与构建版本（诊断上报与日志按 sid+version 关联）
 	SID     string `json:"sid,omitempty"`
@@ -65,6 +72,9 @@ type Envelope struct {
 	// resume_token 下发：断线恢复凭据与到期时间
 	Token     string `json:"token,omitempty"`
 	ExpiresAt int64  `json:"expiresAt,omitempty"`
+
+	// invite 下发：完整邀请链接（含 token）与到期时间；URL 不写日志/诊断
+	URL string `json:"url,omitempty"`
 
 	// WebRTC 信令
 	SDP       string `json:"sdp,omitempty"`

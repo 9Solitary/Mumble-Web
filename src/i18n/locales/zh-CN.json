@@ -58,6 +58,25 @@
     "proxyUnavailable": "无法连接代理服务器",
     "backToConnect": "返回连接页"
   },
+  "invite": {
+    "entry": "邀请",
+    "title": "邀请成员",
+    "description": "生成一条一次性链接，对方打开后只需填写昵称。",
+    "initialNote": "链接限时有效，仅可使用一次。生成后直接复制发给对方即可。",
+    "generate": "生成邀请链接",
+    "generating": "正在生成…",
+    "linkLabel": "邀请链接",
+    "copy": "复制链接",
+    "copied": "邀请链接已复制",
+    "copyFailed": "复制失败，请手动选择链接。",
+    "expiry": "一次性 · 约 {{minutes}} 分钟内有效",
+    "claimNote": "对方退出或断线后失效",
+    "errorUnavailable": "邀请功能未启用，请联系管理员。",
+    "errorForbidden": "受邀加入的成员不能继续邀请其他人。",
+    "errorNotReady": "连接尚未就绪，请稍后再试。",
+    "errorNetwork": "无法生成邀请，请检查网络后重试。",
+    "errorGeneric": "生成邀请失败，请稍后重试。"
+  },
   "chat": {
     "title": "聊天",
     "placeholder": "发消息到 {{channel}}",

@@ -122,3 +122,134 @@ func TestRevokeResumeOnUserDisconnect(t *testing.T) {
 	s2 := &Session{done: make(chan struct{}), invites: st}
 	s2.revokeResume()
 }
+
+func newInviteSession(st *invite.Store) *Session {
+	return &Session{
+		done:             make(chan struct{}),
+		send:             make(chan Envelope, 4),
+		startedAt:        time.Now(),
+		invites:          st,
+		webInviteEnabled: true,
+		synced:           true,
+		serverPassword:   "server-pw",
+		serverAddr:       "mumble.example.com",
+		inviteURL: func(token string) string {
+			return "https://chat.example.com/invite/" + token
+		},
+	}
+}
+
+func readEnvelope(t *testing.T, s *Session) Envelope {
+	t.Helper()
+	select {
+	case env := <-s.send:
+		return env
+	case <-time.After(time.Second):
+		t.Fatal("等待下行信封超时")
+		return Envelope{}
+	}
+}
+
+func TestCreateInviteNormalSession(t *testing.T) {
+	st := invite.NewStore(time.Minute)
+	s := newInviteSession(st)
+
+	s.handleCreateInvite()
+	env := readEnvelope(t, s)
+
+	if env.Type != DownInvite {
+		t.Fatalf("type: got %q want %q (code=%q reason=%q)", env.Type, DownInvite, env.Code, env.Reason)
+	}
+	if env.Token == "" || env.URL != "https://chat.example.com/invite/"+env.Token {
+		t.Fatalf("邀请 token/url 错误: token=%q url=%q", env.Token, env.URL)
+	}
+	if env.ExpiresAt <= time.Now().Unix() {
+		t.Fatalf("expiresAt 应在未来: %d", env.ExpiresAt)
+	}
+	if env.Password != "" {
+		t.Fatal("邀请下行不得携带密码")
+	}
+	if st.Len() != 1 {
+		t.Fatalf("应产生一条邀请记录，实际 %d", st.Len())
+	}
+
+	inv, ok := st.Claim(env.Token)
+	if !ok {
+		t.Fatal("新建邀请应可认领")
+	}
+	if inv.ServerAddr != "mumble.example.com" || inv.Password != "server-pw" {
+		t.Fatalf("邀请应使用当前会话的上游与密码: %+v", inv)
+	}
+}
+
+func TestCreateInviteRejectsInvitedResumeSession(t *testing.T) {
+	st := invite.NewStore(time.Minute)
+	s := newInviteSession(st)
+	s.invited = true // 邀请登录与 resume 登录都会置位
+
+	s.handleCreateInvite()
+	env := readEnvelope(t, s)
+
+	if env.Type != DownInviteError || env.Code != "invite_forbidden" {
+		t.Fatalf("受邀用户应被拒绝: %+v", env)
+	}
+	if st.Len() != 0 {
+		t.Fatalf("被拒时不得产生邀请记录，实际 %d", st.Len())
+	}
+}
+
+func TestCreateInviteRejectsNotReady(t *testing.T) {
+	st := invite.NewStore(time.Minute)
+	s := newInviteSession(st)
+	s.synced = false
+
+	s.handleCreateInvite()
+	env := readEnvelope(t, s)
+	if env.Type != DownInviteError || env.Code != "invite_not_ready" {
+		t.Fatalf("未同步时应拒绝: %+v", env)
+	}
+	if st.Len() != 0 {
+		t.Fatalf("被拒时不得产生邀请记录，实际 %d", st.Len())
+	}
+}
+
+func TestCreateInviteRejectsDisabled(t *testing.T) {
+	st := invite.NewStore(time.Minute)
+	s := newInviteSession(st)
+	s.webInviteEnabled = false
+
+	s.handleCreateInvite()
+	env := readEnvelope(t, s)
+	if env.Type != DownInviteError || env.Code != "invite_unavailable" {
+		t.Fatalf("功能关闭时应拒绝: %+v", env)
+	}
+	if st.Len() != 0 {
+		t.Fatalf("被拒时不得产生邀请记录，实际 %d", st.Len())
+	}
+}
+
+// TestMarkSyncedInvitedSticky 验证 OnConnect 落权限，且同一 WS 二次普通 connect
+// 不会把 invited 洗掉；cleanup 同时清空密码与权限。
+func TestMarkSyncedInvitedSticky(t *testing.T) {
+	s := &Session{done: make(chan struct{})}
+	s.markSynced(&connectCreds{password: "first-pw", serverAddr: "one.example.com", trusted: true})
+	if !s.invited || !s.synced || !s.connected {
+		t.Fatal("邀请登录同步后应置 invited/synced/connected")
+	}
+	if s.serverPassword != "first-pw" || s.serverAddr != "one.example.com" {
+		t.Fatal("同步后应保存本次会话凭据")
+	}
+
+	s.markSynced(&connectCreds{password: "second-pw", serverAddr: "two.example.com", trusted: false})
+	if !s.invited {
+		t.Fatal("受邀会话再次普通 connect 后 invited 仍应为 true")
+	}
+	if s.serverPassword != "second-pw" || s.serverAddr != "two.example.com" {
+		t.Fatal("普通 connect 的凭据应更新到当前会话")
+	}
+
+	s.cleanup()
+	if s.invited || s.synced || s.connected || s.serverPassword != "" || s.serverAddr != "" {
+		t.Fatalf("cleanup 应清空邀请权限与凭据: %+v", s)
+	}
+}

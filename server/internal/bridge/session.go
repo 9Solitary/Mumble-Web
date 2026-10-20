@@ -39,9 +39,17 @@ type Session struct {
 	upstream      mumbleconn.Target
 	allowOverride bool // 允许浏览器在 connect 时指定其他上游服务器
 
-	invites     *invite.Store // 一次性邀请存储（nil 表示邀请功能未启用）
+	invites     *invite.Store // 一次性邀请存储（nil 表示邀请功能不可用）
 	inviteToken string        // 本会话认领的邀请 token，会话结束时作废
 	resumeToken string        // 本会话持有的断线恢复凭据，用户主动退出时吊销
+
+	webInviteEnabled bool                      // 是否允许本会话在网页里创建邀请
+	inviteURL        func(token string) string // 创建成功后生成完整邀请链接；由代理按 FRONTEND_URL/Origin 注入
+
+	invited        bool   // 本会话是否来自邀请/恢复凭据；sticky，避免二次 connect 洗白
+	synced         bool   // 是否已完成 Mumble 同步（可创建邀请）
+	serverPassword string // 本会话实际登录用的服务器密码；仅内存，cleanup 清空
+	serverAddr     string // 本会话实际连接的上游（含 override），不信任前端传值
 
 	registry        *SessionRegistry // 同名会话注册表（nil = 不启用）
 	sessionKey      string           // 上游地址 + 小写昵称
@@ -78,24 +86,26 @@ type Session struct {
 	udpMux     ice.UDPMux
 }
 
-func NewSession(ws *websocket.Conn, upstream mumbleconn.Target, udpMux ice.UDPMux, publicIP string, allowOverride bool, invites *invite.Store, registry *SessionRegistry, sid, version string) *Session {
+func NewSession(ws *websocket.Conn, upstream mumbleconn.Target, udpMux ice.UDPMux, publicIP string, allowOverride bool, invites *invite.Store, registry *SessionRegistry, sid, version string, webInviteEnabled bool, inviteURL func(string) string) *Session {
 	return &Session{
-		ws:            ws,
-		send:          make(chan Envelope, 256),
-		done:          make(chan struct{}),
-		sid:           sid,
-		version:       version,
-		startedAt:     time.Now(),
-		upstream:      upstream,
-		allowOverride: allowOverride,
-		invites:       invites,
-		registry:      registry,
-		lastVoice:     make(map[uint32]time.Time),
-		talking:       make(map[uint32]bool),
-		voiceFrames:   make(map[uint32]int),
-		downlink:      make(map[uint32]*downlinkStats),
-		udpMux:        udpMux,
-		publicIP:      publicIP,
+		ws:               ws,
+		send:             make(chan Envelope, 256),
+		done:             make(chan struct{}),
+		sid:              sid,
+		version:          version,
+		startedAt:        time.Now(),
+		upstream:         upstream,
+		allowOverride:    allowOverride,
+		invites:          invites,
+		webInviteEnabled: webInviteEnabled,
+		inviteURL:        inviteURL,
+		registry:         registry,
+		lastVoice:        make(map[uint32]time.Time),
+		talking:          make(map[uint32]bool),
+		voiceFrames:      make(map[uint32]int),
+		downlink:         make(map[uint32]*downlinkStats),
+		udpMux:           udpMux,
+		publicIP:         publicIP,
 	}
 }
 
@@ -129,9 +139,10 @@ func (s *Session) Run() {
 
 	s.logEvent("session_start", "remote", s.ws.RemoteAddr().String())
 	s.push(Envelope{
-		Type:    DownHello,
-		SID:     s.sid,
-		Version: s.version,
+		Type:          DownHello,
+		SID:           s.sid,
+		Version:       s.version,
+		InviteEnabled: s.webInviteEnabled && s.invites != nil,
 		Server: &ServerInfoPayload{
 			Address:  s.upstream.Original,
 			Resolved: s.upstream.Address,
@@ -275,6 +286,12 @@ func (s *Session) cleanup() {
 			s.invites.Delete(s.inviteToken)
 			s.inviteToken = ""
 		}
+		// 邀请权限与本次登录密码只属于当前会话；结束即清空，不落盘、不写日志。
+		s.connected = false
+		s.synced = false
+		s.invited = false
+		s.serverPassword = ""
+		s.serverAddr = ""
 	})
 }
 
@@ -296,6 +313,8 @@ func (s *Session) handle(env Envelope) {
 	switch env.Type {
 	case UpConnect:
 		s.handleConnect(env)
+	case UpCreateInvite:
+		s.handleCreateInvite()
 	case UpJoinChannel:
 		s.withClient(func(c *gumble.Client) {
 			if ch := c.Channels[env.ChannelID]; ch != nil && c.Self != nil {
@@ -382,6 +401,72 @@ func (s *Session) handle(env Envelope) {
 	}
 }
 
+// handleCreateInvite 为当前已登录会话创建一次性邀请。
+// 硬边界：受邀用户（含 resume）不能继续邀请其他人。权限检查必须在
+// inviteStore.Create 之前完成，拒绝时不产生任何邀请记录。
+func (s *Session) handleCreateInvite() {
+	s.mu.Lock()
+	enabled := s.webInviteEnabled && s.invites != nil
+	synced := s.synced
+	invited := s.invited
+	password := s.serverPassword
+	serverAddr := s.serverAddr
+	inviteURL := s.inviteURL
+	s.mu.Unlock()
+
+	switch {
+	case !enabled:
+		s.rejectInvite("invite_unavailable", "邀请功能未启用")
+		return
+	case !synced:
+		s.rejectInvite("invite_not_ready", "连接尚未就绪")
+		return
+	case invited:
+		s.rejectInvite("invite_forbidden", "受邀用户不能继续邀请其他人")
+		return
+	case inviteURL == nil:
+		s.rejectInvite("invite_failed", "生成邀请失败")
+		return
+	}
+
+	inv, err := s.invites.Create(serverAddr, password)
+	if err != nil {
+		s.logEvent("invite_create_error", "error", err.Error())
+		s.rejectInvite("invite_failed", "生成邀请失败")
+		return
+	}
+
+	url := inviteURL(inv.Token)
+	if url == "" {
+		// 链接生成失败时不要留下无法交付的邀请记录。
+		s.invites.Delete(inv.Token)
+		s.rejectInvite("invite_failed", "生成邀请失败")
+		return
+	}
+
+	// 只记录 token 前缀与到期时间；URL/密码/服务器地址不写日志。
+	s.logEvent("invite_created", "token", tokenPrefix(inv.Token),
+		"expires_at", inv.ExpiresAt.Format(time.RFC3339))
+	s.push(Envelope{
+		Type:      DownInvite,
+		Token:     inv.Token,
+		URL:       url,
+		ExpiresAt: inv.ExpiresAt.Unix(),
+	})
+}
+
+func (s *Session) rejectInvite(code, reason string) {
+	s.logEvent("invite_denied", "code", code)
+	s.push(Envelope{Type: DownInviteError, Code: code, Reason: reason})
+}
+
+func tokenPrefix(token string) string {
+	if len(token) > 8 {
+		return token[:8]
+	}
+	return token
+}
+
 func (s *Session) withClient(f func(*gumble.Client)) {
 	s.mu.Lock()
 	c := s.client
@@ -429,8 +514,15 @@ func (s *Session) handleConnect(env Envelope) {
 		s.push(Envelope{Type: DownReject, Reason: "邀请链接无效或已被使用", Code: "invite_invalid"})
 		return
 	}
-	s.logEvent("invite_claim", "token", env.InviteToken[:8], "username", env.Username)
+	s.logEvent("invite_claim", "token", tokenPrefix(env.InviteToken), "username", env.Username)
 	s.connectMumble(env.Username, inv.Password, inv.ServerAddr, true, inv.Token)
+}
+
+// connectCreds 是本次 Mumble 登录实际使用的凭据，只在成功同步后写入 Session。
+type connectCreds struct {
+	password   string
+	serverAddr string // 实际连接的上游 original（含 override）
+	trusted    bool   // 来自服务端邀请/恢复存储：本会话是受邀用户
 }
 
 func (s *Session) connectMumble(username, password, serverAddr string, trusted bool, inviteToken string) {
@@ -494,7 +586,12 @@ func (s *Session) connectMumble(username, password, serverAddr string, trusted b
 	config := gumble.NewConfig()
 	config.Username = username
 	config.Password = password
-	listener := &mumbleListener{s: s}
+	creds := &connectCreds{
+		password:   password,
+		serverAddr: upstream.Original,
+		trusted:    trusted,
+	}
+	listener := &mumbleListener{s: s, creds: creds}
 	config.Attach(listener)
 
 	client, err := mumbleconn.Dial(upstream, config)
@@ -522,9 +619,7 @@ func (s *Session) connectMumble(username, password, serverAddr string, trusted b
 	s.rtc = rtc
 	s.connected = true
 	s.inviteToken = inviteToken
-	s.mu.Unlock()
-
-	// 凭据来自服务端存储（一次性邀请或恢复凭据）的登录：签发断线恢复凭据。
+	s.mu.Unlock() // 凭据来自服务端存储（一次性邀请或恢复凭据）的登录：签发断线恢复凭据。
 	// Dial 返回时 OnConnect 已推送 connected/频道/用户/synced，
 	// 此处下发 resume_token 满足「在 synced 之后」的契约顺序。
 	if trusted && s.invites != nil {
@@ -538,6 +633,29 @@ func (s *Session) connectMumble(username, password, serverAddr string, trusted b
 			s.logEvent("resume_issue_error", "error", err.Error())
 		}
 	}
+}
+
+// markSynced 在 Mumble 完成同步、即将下发 connected/synced 之前落会话状态。
+// OnConnect 早于 Dial 返回，不能等 connectMumble 回来才置位，否则前端收到
+// synced 后立刻 createInvite 会撞上 not_ready。
+func (s *Session) markSynced(creds *connectCreds) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.connected = true
+	s.synced = true
+	if creds == nil {
+		return
+	}
+	// 一旦本会话以邀请/恢复身份连过，后续普通 connect 也不能洗掉 invited。
+	s.invited = s.invited || creds.trusted
+	s.serverPassword = creds.password
+	s.serverAddr = creds.serverAddr
+}
+
+func (s *Session) isInvited() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.invited
 }
 
 // 下行语音观测阈值：
@@ -739,7 +857,8 @@ func channelPayload(ch *gumble.Channel) *ChannelPayload {
 // ---- gumble 事件监听（在 gumble 读协程触发，必须非阻塞） ----
 
 type mumbleListener struct {
-	s *Session
+	s     *Session
+	creds *connectCreds
 }
 
 func (l *mumbleListener) OnConnect(e *gumble.ConnectEvent) {
@@ -750,13 +869,14 @@ func (l *mumbleListener) OnConnect(e *gumble.ConnectEvent) {
 		s.push(Envelope{Type: DownError, Reason: "服务器同步异常：未收到自己的用户信息"})
 		return
 	}
+	s.markSynced(l.creds)
 	s.logEvent("mumble_synced", "mumble_session", self.Session, "username", self.Name,
 		"channels", len(e.Client.Channels), "users", len(e.Client.Users))
 	payload := &SelfPayload{Session: self.Session, Name: self.Name}
 	if e.WelcomeMessage != nil {
 		payload.WelcomeMessage = *e.WelcomeMessage
 	}
-	s.push(Envelope{Type: DownConnected, Self: payload})
+	s.push(Envelope{Type: DownConnected, Self: payload, Invited: s.isInvited()})
 
 	// 同步完成后推送全量频道与用户快照
 	for _, ch := range e.Client.Channels {

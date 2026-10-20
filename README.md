@@ -50,7 +50,7 @@ Mumble Web 是一个面向 Mumble 服务器的 Web 客户端。它由 **React �
 | **频道与成员** | 真实折叠的频道树；单击查看、双击/悬浮加入；在麦用户、说话指示、静音/闭麦/优先发言状态；成员搜索与按频道分组 |
 | **界面** | 三栏工作区；桌面左侧语音卡；移动端底部语音坞与频道/成员抽屉；设置六页签（音频/语音/快捷键/外观/诊断/关于） |
 | **体验** | 中英文即时切换；图片查看器（多图/缩放/平移/移动端手势）；Toast；错误码本地化；`prefers-reduced-motion` |
-| **运维** | 单代理同时服务静态页面与 WebSocket；Docker Compose；SRV 解析；TLS `verify` / `pin` / `insecure`；一次性邀请链接；诊断事件导出 |
+| **运维** | 单代理同时服务静态页面与 WebSocket；Docker Compose；SRV 解析；TLS `verify` / `pin` / `insecure`；网页一键邀请 + bot API；诊断事件导出 |
 
 ## 架构
 
@@ -141,9 +141,10 @@ Vite 开发服务器会把 `/api` 和 `/ws` 代理到 `localhost:8080`。
 | `RTC_PUBLIC_IP` | 空 | 代理位于 NAT 后时填写公网 IP |
 | `STATIC_DIR` | `dist` | 前端静态资源目录 |
 | `ALLOW_SERVER_OVERRIDE` | `true` | 是否允许连接页自选上游服务器 |
-| `INVITE_SECRET` | 空 | 邀请创建 API 的 Bearer 密钥；留空则关闭 |
+| `WEB_INVITE_ENABLED` | `true` | 是否允许已登录用户在网页里创建邀请 |
+| `INVITE_SECRET` | 空 | bot 邀请创建 API 的 Bearer 密钥；留空则关闭 bot 创建 |
 | `INVITE_TTL` | `30m` | 邀请链接有效期 |
-| `FRONTEND_URL` | 空 | 生成邀请链接使用的前端地址 |
+| `FRONTEND_URL` | 空 | 生成邀请链接使用的前端地址；留空时网页邀请按 WS Origin / 请求 Host 推断 |
 
 web 容器另有 `PROXY_ORIGIN`、`PROXY_UPSTREAM`、`WEB_PORT`，详见
 [.env.example](.env.example) 与 [DEPLOYMENT.md](DEPLOYMENT.md)。
@@ -161,7 +162,15 @@ Mumble 的昵称是单一身份。本项目在**网页端之间**做了确定性
 
 ## 邀请链接
 
-配置 `INVITE_SECRET` 后，机器人后端可调用 API 生成一次性邀请链接：
+已登录用户可以在主界面顶栏点「邀请」，直接生成一次性链接：
+
+- 链接在 `INVITE_TTL` 内有效，首个成功登录的会话认领，退出/断线后立即作废；
+- 受邀用户只看到昵称输入框，服务器和密码由服务端保存，不出现在 URL；
+- 受邀用户（含断线恢复的受邀会话）不能继续邀请其他人；
+- 邀请为纯内存态，代理重启即清空；
+- 部署时可设置 `WEB_INVITE_ENABLED=false` 关闭网页入口；已有邀请校验、受邀登录与恢复不受影响。
+
+机器人后端仍可调用 `POST /api/invites`，但只在配置 `INVITE_SECRET` 时开放：
 
 ```bash
 curl -X POST https://<host>:8080/api/invites \
@@ -171,10 +180,8 @@ curl -X POST https://<host>:8080/api/invites \
 # => {"token":"...","url":"https://<host>:8080/invite/<token>","expiresAt":1729000000}
 ```
 
-- 链接在 `INVITE_TTL` 内有效，首个成功登录的会话认领，退出/断线后立即作废；
-- 受邀用户只看到昵称输入框，服务器和密码由服务端保存，不出现在 URL；
-- 邀请为纯内存态，代理重启即清空；
-- `INVITE_SECRET` 只部署在代理与 bot 后端，不要下发给普通用户。
+- `INVITE_SECRET` 只部署在代理与 bot 后端，不要下发给普通用户；
+- bot 与网页邀请共用同一份内存存储，`GET /api/invites/{token}` 契约不变。
 
 ## 开发与测试
 

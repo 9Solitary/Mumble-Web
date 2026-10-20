@@ -48,6 +48,7 @@ const HELLO: Envelope = {
   type: "hello",
   sid: "test-sid",
   version: "test",
+  inviteEnabled: true,
   server: { address: "mock:64738", resolved: "127.0.0.1:64738", tlsMode: "insecure", voice: "webrtc" },
 };
 const CONNECTED: Envelope = {
@@ -55,6 +56,12 @@ const CONNECTED: Envelope = {
   self: { session: 1, name: "alice", channelId: 0 },
 };
 const SYNCED: Envelope = { type: "synced" };
+const INVITE: Envelope = {
+  type: "invite",
+  token: "invite-token",
+  url: "https://chat.example.com/invite/invite-token",
+  expiresAt: 9_999_999_999,
+};
 
 async function flush() {
   await vi.advanceTimersByTimeAsync(0);
@@ -337,5 +344,120 @@ describe("appStore 重连状态机", () => {
     useAppStore.getState().returnToConnect();
     expect(useAppStore.getState().connState).toBe("idle");
     expect(useAppStore.getState().endCode).toBe("");
+  });
+
+  it("普通用户：createInvite 发送请求，成功后保存链接", async () => {
+    useAppStore.getState().connect("alice", "pw123");
+    const ws = MockWS.instances[0];
+    await login(ws);
+    expect(useAppStore.getState().inviteEnabled).toBe(true);
+    expect(useAppStore.getState().invited).toBe(false);
+
+    useAppStore.getState().createInvite();
+    expect(ws.lastSent()).toEqual({ type: "createInvite" });
+    expect(useAppStore.getState().inviteStatus).toBe("loading");
+
+    ws.deliver(INVITE);
+    const state = useAppStore.getState();
+    expect(state.inviteStatus).toBe("ready");
+    expect(state.inviteLink).toEqual({
+      token: "invite-token",
+      url: "https://chat.example.com/invite/invite-token",
+      expiresAt: 9_999_999_999,
+      minutes: expect.any(Number),
+    });
+    expect(state.inviteError).toBe("");
+  });
+
+  it("受邀用户：本地直接拒绝，不发送 createInvite", async () => {
+    useAppStore.getState().connect("bob", "", "", "inv-tok");
+    const ws = MockWS.instances[0];
+    await flush();
+    ws.deliver(HELLO);
+    ws.deliver({ ...CONNECTED, invited: true });
+    ws.deliver(SYNCED);
+    await flush();
+
+    const before = ws.sent.length;
+    useAppStore.getState().createInvite();
+    const state = useAppStore.getState();
+    expect(state.inviteStatus).toBe("error");
+    expect(state.inviteError).toBe("invite_forbidden");
+    expect(ws.sent).toHaveLength(before);
+  });
+
+  it("服务端 inviteError：显示稳定错误码，不留在 loading", async () => {
+    useAppStore.getState().connect("alice", "pw123");
+    const ws = MockWS.instances[0];
+    await login(ws);
+
+    useAppStore.getState().createInvite();
+    ws.deliver({ type: "inviteError", code: "invite_failed", reason: "boom" });
+    const state = useAppStore.getState();
+    expect(state.inviteStatus).toBe("error");
+    expect(state.inviteError).toBe("invite_failed");
+    expect(state.inviteLink).toBeNull();
+  });
+
+  it("网页邀请关闭：不发送请求，返回 invite_unavailable", async () => {
+    useAppStore.getState().connect("alice", "pw123");
+    const ws = MockWS.instances[0];
+    await flush();
+    ws.deliver({ ...HELLO, inviteEnabled: false });
+    ws.deliver(CONNECTED);
+    ws.deliver(SYNCED);
+    await flush();
+
+    const before = ws.sent.length;
+    useAppStore.getState().createInvite();
+    const state = useAppStore.getState();
+    expect(state.inviteEnabled).toBe(false);
+    expect(state.inviteStatus).toBe("error");
+    expect(state.inviteError).toBe("invite_unavailable");
+    expect(ws.sent).toHaveLength(before);
+  });
+
+  it("创建邀请时断线：退出 loading，标记网络失败", async () => {
+    useAppStore.getState().connect("alice", "pw123");
+    const ws = MockWS.instances[0];
+    await login(ws);
+
+    useAppStore.getState().createInvite();
+    expect(useAppStore.getState().inviteStatus).toBe("loading");
+    ws.drop(1006);
+    const state = useAppStore.getState();
+    expect(state.connState).toBe("reconnecting");
+    expect(state.inviteStatus).toBe("error");
+    expect(state.inviteError).toBe("invite_network");
+  });
+
+  it("创建邀请超时：退出 loading，可重试", async () => {
+    useAppStore.getState().connect("alice", "pw123");
+    const ws = MockWS.instances[0];
+    await login(ws);
+
+    useAppStore.getState().createInvite();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(useAppStore.getState().inviteStatus).toBe("error");
+    expect(useAppStore.getState().inviteError).toBe("invite_network");
+
+    const before = ws.sent.length;
+    useAppStore.getState().createInvite();
+    expect(useAppStore.getState().inviteStatus).toBe("loading");
+    expect(ws.sent).toHaveLength(before + 1);
+  });
+
+  it("重置邀请状态：清空链接与错误", async () => {
+    useAppStore.getState().connect("alice", "pw123");
+    const ws = MockWS.instances[0];
+    await login(ws);
+    useAppStore.getState().createInvite();
+    ws.deliver(INVITE);
+
+    useAppStore.getState().resetInvite();
+    const state = useAppStore.getState();
+    expect(state.inviteStatus).toBe("idle");
+    expect(state.inviteLink).toBeNull();
+    expect(state.inviteError).toBe("");
   });
 });

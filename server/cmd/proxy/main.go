@@ -10,7 +10,6 @@ package main
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -74,8 +73,9 @@ func main() {
 		rtcUDPPort    = flag.Int("rtc-udp-port", envOrInt("RTC_UDP_PORT", 50000), "WebRTC ICE UDP 端口")
 		publicIP      = flag.String("rtc-public-ip", envOr("RTC_PUBLIC_IP", ""), "代理的公网 IP（NAT 后部署时填写）")
 		allowOverride = flag.Bool("allow-server-override", envOr("ALLOW_SERVER_OVERRIDE", "true") != "false", "允许网页端连接时自选 Mumble 服务器")
-		inviteSecret  = flag.String("invite-secret", envOr("INVITE_SECRET", ""), "邀请链接 API 的 Bearer 密钥（留空则关闭邀请功能）")
+		inviteSecret  = flag.String("invite-secret", envOr("INVITE_SECRET", ""), "bot 邀请 API 的 Bearer 密钥（留空则关闭 bot 创建）")
 		inviteTTL     = flag.Duration("invite-ttl", envOrDuration("INVITE_TTL", 30*time.Minute), "邀请链接有效期")
+		webInvite     = flag.Bool("web-invite-enabled", envOr("WEB_INVITE_ENABLED", "true") != "false", "允许已登录用户在网页里创建邀请")
 		diagDir       = flag.String("diag-dir", envOr("DIAG_DIR", "."), "诊断上报落盘目录（diag.jsonl）")
 		frontendURL   = flag.String("frontend-url", envOr("FRONTEND_URL", ""), "前端页面的对外地址（如 https://chat.example.com），用于生成邀请链接；留空按请求来源拼接")
 	)
@@ -83,15 +83,12 @@ func main() {
 
 	slog.Info("proxy_start", "event", "proxy_start", "version", version)
 
-	// 邀请存储：仅内存态，重启即清空（符合一次性短时效语义）
-	var inviteStore *invite.Store
-	if *inviteSecret != "" {
-		inviteStore = invite.NewStore(*inviteTTL)
-		inviteStore.StartCleaner(make(chan struct{}))
-		slog.Info("invite_enabled", "event", "invite_enabled", "ttl", inviteTTL.String())
-	} else {
-		slog.Info("invite_disabled", "event", "invite_disabled", "reason", "INVITE_SECRET 未配置")
-	}
+	// 邀请存储始终创建：网页邀请、受邀登录、resume 与 bot API 共用同一份内存态。
+	// bot 的 POST 仍只由 INVITE_SECRET 控制；网页创建由 WEB_INVITE_ENABLED 控制。
+	inviteStore := invite.NewStore(*inviteTTL)
+	inviteStore.StartCleaner(make(chan struct{}))
+	slog.Info("invite_enabled", "event", "invite_enabled", "ttl", inviteTTL.String(),
+		"web", *webInvite, "bot", *inviteSecret != "")
 
 	target, err := mumbleconn.Resolve(*server, *tlsMode)
 	if err != nil {
@@ -123,7 +120,11 @@ func main() {
 			slog.Warn("ws_upgrade_failed", "event", "ws_upgrade_failed", "error", err.Error())
 			return
 		}
-		sess := bridge.NewSession(ws, target, udpMux, *publicIP, *allowOverride, inviteStore, registry, newSID(), version)
+		baseURL := webInviteBaseURL(*frontendURL, r)
+		sess := bridge.NewSession(ws, target, udpMux, *publicIP, *allowOverride, inviteStore, registry, newSID(), version,
+			*webInvite,
+			func(token string) string { return joinInviteURL(baseURL, token) },
+		)
 		sess.Run()
 	})
 	mux.HandleFunc("/api/server", func(w http.ResponseWriter, r *http.Request) {
@@ -138,57 +139,10 @@ func main() {
 	})
 	// 诊断上报：前端错误/事件批量落盘 diag.jsonl（详见 diag.go 隐私说明）
 	mux.HandleFunc("POST /api/diag", diag.handler)
-	// 邀请创建：供 QQ 机器人等 bot 后端调用，需 Bearer 鉴权。
-	mux.HandleFunc("POST /api/invites", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		if inviteStore == nil {
-			http.Error(w, `{"error":"邀请功能未启用"}`, http.StatusForbidden)
-			return
-		}
-		if r.Header.Get("Authorization") != "Bearer "+*inviteSecret {
-			http.Error(w, `{"error":"未授权"}`, http.StatusUnauthorized)
-			return
-		}
-		var req struct {
-			ServerAddr string `json:"serverAddr"`
-			Password   string `json:"password"`
-		}
-		// 空 body 视为默认配置邀请
-		if r.Body != nil {
-			_ = json.NewDecoder(r.Body).Decode(&req)
-		}
-		inv, err := inviteStore.Create(req.ServerAddr, req.Password)
-		if err != nil {
-			http.Error(w, `{"error":"生成邀请失败"}`, http.StatusInternalServerError)
-			return
-		}
-		var url string
-		if *frontendURL != "" {
-			// 前后端分离部署：邀请链接指向前端页面地址而非本代理
-			url = strings.TrimRight(*frontendURL, "/") + "/invite/" + inv.Token
-		} else {
-			scheme := "http"
-			if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
-				scheme = "https"
-			}
-			url = fmt.Sprintf("%s://%s/invite/%s", scheme, r.Host, inv.Token)
-		}
-		slog.Info("invite_created", "event", "invite_created",
-			"token", inv.Token[:8], "server", req.ServerAddr, "expires_at", inv.ExpiresAt.Format(time.RFC3339))
-		fmt.Fprintf(w, `{"token":%q,"url":%q,"expiresAt":%d}`,
-			inv.Token, url, inv.ExpiresAt.Unix())
-	})
-	// 邀请校验：前端打开邀请链接时调用；永不返回密码。
-	mux.HandleFunc("GET /api/invites/{token}", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		token := r.PathValue("token")
-		if inviteStore == nil || !inviteStore.Validate(token) {
-			// code 供前端映射本地化文案；reason 只作为“详情”排障。
-			fmt.Fprint(w, `{"valid":false,"code":"invite_invalid","reason":"邀请链接无效、已过期或已被使用"}`)
-			return
-		}
-		fmt.Fprint(w, `{"valid":true}`)
-	})
+	// 邀请 API：POST 仅 bot 使用（Bearer）；GET 校验对网页邀请同样开放。
+	invitesAPI := &inviteAPI{store: inviteStore, secret: *inviteSecret, frontendURL: *frontendURL}
+	mux.HandleFunc("POST /api/invites", invitesAPI.create)
+	mux.HandleFunc("GET /api/invites/{token}", invitesAPI.validate)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))

@@ -1,6 +1,7 @@
 // Package invite 实现一次性邀请链接的内存存储。
-// 邀请由机器人后端调用 POST /api/invites 创建，token 在 TTL 内有效；
-// 首个凭 token 成功登录 Mumble 的会话认领它，会话结束后立即作废。
+// 邀请可由已登录的网页会话通过 WebSocket 创建，也可由机器人后端调用
+// POST /api/invites 创建；token 在 TTL 内有效，首个凭 token 成功登录 Mumble
+// 的会话认领它，会话结束后立即作废。
 //
 // 邀请登录成功后额外签发 resume token（断线恢复凭据）：
 // 邀请用户挂机断线后 5 分钟内可凭它重连恢复原凭据，无需新邀请链接。
@@ -69,6 +70,14 @@ func (s *Store) Create(serverAddr, password string) (*Invite, error) {
 	s.m[inv.Token] = inv
 	s.mu.Unlock()
 	return inv, nil
+}
+
+// Len 返回当前仍保留在内存中的邀请记录数（含尚未被清理的过期项）。
+// 仅用于观测与测试；不改变邀请生命周期。
+func (s *Store) Len() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.m)
 }
 
 // Validate 检查 token 当前可用（存在、未过期、未被认领）。

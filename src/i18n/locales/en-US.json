@@ -58,6 +58,25 @@
     "proxyUnavailable": "Could not reach the proxy server",
     "backToConnect": "Back to connect"
   },
+  "invite": {
+    "entry": "Invite",
+    "title": "Invite people",
+    "description": "Create a single-use link. They choose a name and join.",
+    "initialNote": "The link is time-limited and works once. Copy it and send it on.",
+    "generate": "Create invite link",
+    "generating": "Creating…",
+    "linkLabel": "Invite link",
+    "copy": "Copy link",
+    "copied": "Invite link copied",
+    "copyFailed": "Copy failed. Select the link and copy it manually.",
+    "expiry": "Single-use · valid for about {{minutes}} min",
+    "claimNote": "Expires when they leave or disconnect",
+    "errorUnavailable": "Invites are disabled for this deployment. Contact the administrator.",
+    "errorForbidden": "Guests who joined by invite can't invite others.",
+    "errorNotReady": "The connection isn't ready yet. Try again in a moment.",
+    "errorNetwork": "Couldn't create an invite. Check your connection and try again.",
+    "errorGeneric": "Couldn't create an invite. Try again."
+  },
   "chat": {
     "title": "Chat",
     "placeholder": "Message {{channel}}",

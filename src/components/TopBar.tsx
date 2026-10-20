@@ -1,19 +1,38 @@
 import { useTranslation } from "react-i18next";
-import { Menu } from "lucide-react";
+import { Menu, UserPlus } from "lucide-react";
 
 import { useAppStore } from "@/store/appStore";
 import { useRtt } from "@/hooks/useRtt";
 import { AccountMenu } from "@/components/AccountMenu";
 import { BrandMark } from "@/components/BrandMark";
+import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/ui/icon-button";
 import { cn } from "@/lib/utils";
 
-export function TopBar({ onOpenChannels }: { onOpenChannels: () => void }) {
+export function TopBar({
+  onOpenChannels,
+  onOpenInvite,
+}: {
+  onOpenChannels: () => void;
+  onOpenInvite: () => void;
+}) {
   const { t } = useTranslation();
-  const { server, connState, reconnectAttempt } = useAppStore();
+  const {
+    server,
+    connState,
+    reconnectAttempt,
+    inviteEnabled,
+    invited,
+    inviteToken,
+  } = useAppStore();
   const rtt = useRtt();
   const reconnecting = connState === "reconnecting";
   const serverLabel = server?.address || t("shell.serverFallback");
+  const showInvite =
+    connState === "ready" &&
+    inviteEnabled &&
+    !invited &&
+    !inviteToken;
 
   return (
     <header
@@ -77,7 +96,21 @@ export function TopBar({ onOpenChannels }: { onOpenChannels: () => void }) {
         </span>
       </div>
 
-      <div className="ml-auto flex min-[900px]:ml-0">
+      <div className="ml-auto flex items-center gap-2 min-[900px]:ml-0">
+        {showInvite && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            data-testid="invite-open"
+            aria-label={t("invite.entry")}
+            onClick={onOpenInvite}
+            className="h-11 w-11 shrink-0 gap-2 px-0 sm:w-auto sm:px-3 md:h-9"
+          >
+            <UserPlus className="size-4" aria-hidden="true" />
+            <span className="hidden sm:inline">{t("invite.entry")}</span>
+          </Button>
+        )}
         <AccountMenu />
       </div>
     </header>

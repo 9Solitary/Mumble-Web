@@ -24,6 +24,21 @@ export type ConnState =
   | "failed" // 被拒/断开/放弃重连
   | "ended"; // 会话被顶/被踢/抖动保护：停在终止页，不自动重连
 
+export type InviteStatus = "idle" | "loading" | "ready" | "error";
+
+export interface InviteLink {
+  token: string;
+  url: string;
+  expiresAt: number;
+  minutes: number; // 生成时的约整分钟数，展示层直接用，避免 render 中读 Date.now
+}
+
+const INVITE_IDLE = {
+  inviteStatus: "idle" as const,
+  inviteLink: null,
+  inviteError: "",
+};
+
 // 连续重连失败上限：超过后置 failed，由用户手动重试
 const MAX_RECONNECT_ATTEMPTS = 10;
 
@@ -32,6 +47,7 @@ const FLAP_WINDOW_MS = 60_000;
 const FLAP_SHORT_MS = 15_000;
 const FLAP_LIMIT = 3;
 const DEFAULT_AUTO_THRESHOLD = 0.008;
+const INVITE_TIMEOUT_MS = 10_000;
 
 // ---- 本地设置持久化 ----
 const SETTINGS_KEY = "mumble-web.settings";
@@ -120,6 +136,11 @@ interface AppState {
   server: ServerInfo | null;
   self: SelfInfo | null;
   inviteToken: string | null; // 本次会话使用的一次性邀请 token（退出登录后作废并清除）
+  inviteEnabled: boolean; // 服务端 hello 下发的网页邀请能力
+  invited: boolean; // 本会话来自邀请/恢复：前端隐藏创建入口
+  inviteStatus: InviteStatus;
+  inviteLink: InviteLink | null;
+  inviteError: string; // invite_* 稳定 code，展示层负责本地化
 
   channels: Record<number, ChannelInfo>;
   users: Record<number, UserInfo>;
@@ -160,6 +181,8 @@ interface AppState {
   retryAfterEnd: () => void; // 终止页“重新进入”：复用凭据重新连接
   returnToConnect: () => void; // 终止页“换个昵称”：回连接页
   leaveVoice: () => void; // 离开当前语音频道，回到 root 大厅（不退出登录）
+  createInvite: () => void;
+  resetInvite: () => void;
   handleMessage: (env: Envelope) => void;
   selectChannel: (id: number) => void;
   joinChannel: (id: number) => void;
@@ -182,6 +205,30 @@ interface AppState {
 export const useAppStore = create<AppState>((set, get) => {
   const client = new MumbleClient();
   let helloReceived = false;
+
+  // ---- 一次性邀请创建请求（单请求串行；关闭弹窗/断线时取消） ----
+  let inviteRequestPending = false;
+  let inviteTimer: number | null = null;
+
+  const clearInviteTimer = () => {
+    if (inviteTimer != null) {
+      window.clearTimeout(inviteTimer);
+      inviteTimer = null;
+    }
+  };
+
+  const failInvite = (code: string) => {
+    if (!inviteRequestPending) return;
+    inviteRequestPending = false;
+    clearInviteTimer();
+    set({ inviteStatus: "error", inviteLink: null, inviteError: code });
+  };
+
+  const resetInviteState = () => {
+    inviteRequestPending = false;
+    clearInviteTimer();
+    set(INVITE_IDLE);
+  };
 
   // ---- 重连状态（仅内存，凭据不持久化） ----
   interface SavedCreds {
@@ -264,6 +311,8 @@ export const useAppStore = create<AppState>((set, get) => {
     suspendReconnect = true;
     cancelReconnect();
     gate = null;
+    inviteRequestPending = false;
+    clearInviteTimer();
     logEvent("session-end", { code, detail: detail.slice(0, 200) });
     client.dispose();
     set({
@@ -271,6 +320,9 @@ export const useAppStore = create<AppState>((set, get) => {
       endCode: code,
       endDetail: detail,
       error: "",
+      inviteEnabled: false,
+      invited: false,
+      ...INVITE_IDLE,
       selfTalking: false,
       transmitting: false,
       vadActive: false,
@@ -289,6 +341,7 @@ export const useAppStore = create<AppState>((set, get) => {
   // 首次异常断开：关旧 RTC（保留麦克风流），进入 reconnecting
   const beginReconnect = () => {
     if (suspendReconnect) return;
+    failInvite("invite_network");
     if (!savedCreds) {
       // 没有可重放的凭据，退化为旧的失败提示
       set({
@@ -486,6 +539,11 @@ export const useAppStore = create<AppState>((set, get) => {
     server: null,
     self: null,
     inviteToken: null,
+    inviteEnabled: false,
+    invited: false,
+    inviteStatus: "idle",
+    inviteLink: null,
+    inviteError: "",
     channels: {},
     users: {},
     messages: {},
@@ -519,10 +577,15 @@ export const useAppStore = create<AppState>((set, get) => {
     endDetail: "",
 
     connect: (username, password, serverAddr, inviteToken) => {
+      inviteRequestPending = false;
+      clearInviteTimer();
       set({
         connState: "connecting",
         error: "",
         inviteToken: inviteToken ?? null,
+        inviteEnabled: false,
+        invited: false,
+        ...INVITE_IDLE,
         endCode: "",
         endDetail: "",
       });
@@ -556,10 +619,15 @@ export const useAppStore = create<AppState>((set, get) => {
       connectedAt = 0;
       flapTimes = [];
       gate = null;
+      inviteRequestPending = false;
+      clearInviteTimer();
       cancelReconnect();
       set({
         connState: "connecting",
         error: "",
+        inviteEnabled: false,
+        invited: false,
+        ...INVITE_IDLE,
         endCode: "",
         endDetail: "",
         reconnectAttempt: 0,
@@ -587,12 +655,17 @@ export const useAppStore = create<AppState>((set, get) => {
       gate = null;
       savedCreds = null;
       resumeToken = null;
+      inviteRequestPending = false;
+      clearInviteTimer();
       cancelReconnect();
       client.dispose();
       const wasInvite = get().inviteToken != null;
       set({
         connState: "idle",
         inviteToken: null,
+        inviteEnabled: false,
+        invited: false,
+        ...INVITE_IDLE,
         self: null,
         channels: {},
         users: {},
@@ -629,15 +702,75 @@ export const useAppStore = create<AppState>((set, get) => {
       get().joinChannel(root?.id ?? 0);
     },
 
+    createInvite: () => {
+      if (inviteRequestPending) return;
+      const state = get();
+      if (!state.inviteEnabled) {
+        set({ inviteStatus: "error", inviteLink: null, inviteError: "invite_unavailable" });
+        return;
+      }
+      if (state.invited) {
+        set({ inviteStatus: "error", inviteLink: null, inviteError: "invite_forbidden" });
+        return;
+      }
+      if (state.connState !== "ready") {
+        set({ inviteStatus: "error", inviteLink: null, inviteError: "invite_not_ready" });
+        return;
+      }
+      if (client.wsReadyState !== WebSocket.OPEN) {
+        set({ inviteStatus: "error", inviteLink: null, inviteError: "invite_network" });
+        return;
+      }
+
+      inviteRequestPending = true;
+      set({ inviteStatus: "loading", inviteLink: null, inviteError: "" });
+      client.send({ type: "createInvite" });
+      clearInviteTimer();
+      inviteTimer = window.setTimeout(
+        () => failInvite("invite_network"),
+        INVITE_TIMEOUT_MS,
+      );
+    },
+
+    resetInvite: () => {
+      resetInviteState();
+    },
+
     handleMessage: (env) => {
       const s = get();
       switch (env.type) {
         case "hello":
           if (env.server) set({ server: env.server });
+          set({ inviteEnabled: !!env.inviteEnabled });
           break;
         case "resume_token":
           // 邀请用户的断线恢复 token（仅内存保存，refresh 后走邀请流程重来）
           if (env.token) resumeToken = env.token;
+          break;
+        case "invite":
+          if (!inviteRequestPending) break;
+          if (!env.token || !env.url || !env.expiresAt) {
+            failInvite("invite_failed");
+            break;
+          }
+          inviteRequestPending = false;
+          clearInviteTimer();
+          set({
+            inviteStatus: "ready",
+            inviteLink: {
+              token: env.token,
+              url: env.url,
+              expiresAt: env.expiresAt,
+              minutes: Math.max(
+                1,
+                Math.ceil((env.expiresAt * 1000 - Date.now()) / 60_000),
+              ),
+            },
+            inviteError: "",
+          });
+          break;
+        case "inviteError":
+          failInvite(env.code || "invite_failed");
           break;
         case "connected":
           if (env.self) {
@@ -655,6 +788,7 @@ export const useAppStore = create<AppState>((set, get) => {
               connState: "connected",
               error: "",
               self: env.self,
+              invited: !!env.invited,
               currentChannelId: env.self.channelId,
               selectedChannelId: env.self.channelId,
               reconnectAttempt: 0,

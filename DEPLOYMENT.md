@@ -67,9 +67,10 @@ docker compose logs -f proxy # 观察代理启动日志，Ctrl+C 退出
 
 浏览器访问 `http://<服务器地址>:8080`，输入用户名和 Mumble 服务器密码即可使用。
 
-> 邀请链接功能：在 `.env` 中配置 `INVITE_SECRET` 后，机器人后端可通过
-> `POST /api/invites`（与静态页同源，无需额外端口）生成一次性邀请链接，
-> API 契约见 [README.md](README.md)「邀请链接 / Bot 对接」一节。
+> 邀请链接功能：网页邀请默认开启，已登录用户可在主界面顶栏生成；
+> 设置 `WEB_INVITE_ENABLED=false` 可关闭网页入口。机器人后端仍可通过
+> `POST /api/invites` 创建（需配置 `INVITE_SECRET`），API 契约见
+> [README.md](README.md)「邀请链接」一节。
 
 ---
 
@@ -121,7 +122,9 @@ docker compose up -d --build
 | `RTC_UDP_PORT` | `50000` | WebRTC UDP 端口 |
 | `RTC_PUBLIC_IP` | 空 | 代理在 NAT 后时填公网 IP |
 | `ALLOW_SERVER_OVERRIDE` | `true` | 允许网页端连接页自选上游服务器（`false` 锁定为 `MUMBLE_SERVER`） |
-| `FRONTEND_URL` | 空 | 生成邀请链接用的前端地址；空 = 按请求来源拼接 |
+| `WEB_INVITE_ENABLED` | `true` | 允许已登录用户在网页里创建邀请；`false` 关闭网页入口 |
+| `INVITE_SECRET` | 空 | bot 的 `POST /api/invites` Bearer 密钥；留空则关闭 bot 创建 |
+| `FRONTEND_URL` | 空 | 生成邀请链接用的前端地址；空 = 网页邀请按 WS Origin / 请求 Host 推断 |
 
 ---
 

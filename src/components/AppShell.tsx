@@ -35,6 +35,11 @@ const ShortcutHelpDialog = lazy(() =>
     default: module.ShortcutHelpDialog,
   })),
 );
+const InviteDialog = lazy(() =>
+  import("@/components/InviteDialog").then((module) => ({
+    default: module.InviteDialog,
+  })),
+);
 
 const COLLAPSED_CHANNELS_KEY = "mumble-web.collapsedChannels";
 
@@ -72,6 +77,8 @@ export function AppShell() {
     selectedChannelId,
     self,
     joinChannel,
+    createInvite,
+    resetInvite,
   } = useAppStore();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("audio");
@@ -79,6 +86,8 @@ export function AppShell() {
   const [channelsOpen, setChannelsOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const inviteReturnFocus = useRef<HTMLElement | null>(null);
   const [memberSearchSignal, setMemberSearchSignal] = useState(0);
   // 单击频道只切换查看的聊天，不改变自己所在的语音频道。
   // 该状态是纯展示层，放在 uiStore，避免影响重连/发言目标。
@@ -143,6 +152,25 @@ export function AppShell() {
     }, 0);
   };
 
+  const openInvite = useCallback(() => {
+    const active = document.activeElement;
+    if (active instanceof HTMLElement) inviteReturnFocus.current = active;
+    setInviteOpen(true);
+    // 入口即生成：打开弹窗后直接进入 loading，不再要求二次确认。
+    createInvite();
+  }, [createInvite]);
+
+  const handleInviteOpenChange = (open: boolean) => {
+    setInviteOpen(open);
+    if (open) return;
+    const target = inviteReturnFocus.current;
+    // 弹窗是条件挂载的，Radix 来不及自动归还焦点；等卸载后再聚焦触发按钮。
+    window.setTimeout(() => {
+      if (target?.isConnected) target.focus();
+    }, 0);
+    resetInvite();
+  };
+
   const joinSelected = () => {
     const channelId = selectedChannelId || self?.channelId;
     if (channelId) joinChannel(channelId);
@@ -175,7 +203,7 @@ export function AppShell() {
   const edgeSwipe = useEdgeSwipe({
     onOpenChannels: openChannels,
     onOpenMembers: openMembers,
-    disabled: channelsOpen || membersOpen || settingsOpen || shortcutsOpen,
+    disabled: channelsOpen || membersOpen || settingsOpen || shortcutsOpen || inviteOpen,
   });
 
   return (
@@ -185,7 +213,7 @@ export function AppShell() {
       className="app-shell relative grid w-screen grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden bg-ink-950 text-fg"
     >
       <div className="relative z-20 flex flex-col">
-        <TopBar onOpenChannels={openChannels} />
+        <TopBar onOpenChannels={openChannels} onOpenInvite={openInvite} />
         {connState === "reconnecting" && (
           <div
             role="status"
@@ -294,6 +322,11 @@ export function AppShell() {
             open={shortcutsOpen}
             onOpenChange={setShortcutsOpen}
           />
+        </Suspense>
+      )}
+      {inviteOpen && (
+        <Suspense fallback={null}>
+          <InviteDialog open={inviteOpen} onOpenChange={handleInviteOpenChange} />
         </Suspense>
       )}
       <RemoteAudio />

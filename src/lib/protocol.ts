@@ -61,8 +61,11 @@ export interface Envelope {
   serverAddr?: string; // connect 时可选：覆盖代理默认上游服务器
   inviteToken?: string; // connect 时可选：一次性邀请 token（服务器/密码以服务端存储为准）
   resumeToken?: string; // connect 时可选：断线恢复 token（与 password/inviteToken 互斥）
-  token?: string; // resume_token 信封：断线恢复 token
-  expiresAt?: number; // resume_token 信封：过期时间（unix 秒）
+  inviteEnabled?: boolean; // hello：当前部署是否允许网页创建邀请
+  invited?: boolean; // connected：本会话是否来自邀请/恢复，受邀用户不能继续邀请
+  token?: string; // resume_token 信封：断线恢复 token；invite 信封：一次性邀请 token
+  url?: string; // invite 信封：完整邀请链接
+  expiresAt?: number; // resume_token / invite 信封：过期时间（unix 秒）
   session?: number;
   channelId?: number;
   message?: string;

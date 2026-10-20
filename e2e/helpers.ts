@@ -24,8 +24,17 @@ export async function installMockMedia(page: Page) {
 }
 
 // 最小代理协议 mock：hello → connect → 频道/用户/config → synced。
-// 额外处理 joinChannel / mute / deaf，供移动端抽屉加入频道测试使用。
-export async function mockProxy(page: Page) {
+// 额外处理 joinChannel / mute / deaf / createInvite，供移动端抽屉与邀请入口测试使用。
+export interface MockProxyOptions {
+  inviteEnabled?: boolean;
+  invited?: boolean;
+  inviteError?: "invite_unavailable" | "invite_forbidden" | "invite_not_ready" | "invite_failed";
+  inviteDelayMs?: number;
+}
+
+export async function mockProxy(page: Page, options: MockProxyOptions = {}) {
+  const inviteEnabled = options.inviteEnabled ?? true;
+  const invited = options.invited ?? false;
   await page.routeWebSocket("**/ws", (ws) => {
     const self = {
       session: 1,
@@ -45,6 +54,7 @@ export async function mockProxy(page: Page) {
         type: "hello",
         sid: "e2e-shell",
         version: "e2e",
+        inviteEnabled,
         server: {
           address: "mock:64738",
           resolved: "127.0.0.1:64738",
@@ -62,6 +72,7 @@ export async function mockProxy(page: Page) {
           ws.send(
             JSON.stringify({
               type: "connected",
+              invited,
               self: { session: 1, name: self.name, channelId: 0, maxMessageLength: 5000 },
             }),
           );
@@ -162,6 +173,49 @@ export async function mockProxy(page: Page) {
             }),
           );
           break;
+        case "createInvite":
+          if (!inviteEnabled) {
+            ws.send(
+              JSON.stringify({
+                type: "inviteError",
+                code: "invite_unavailable",
+                reason: "邀请功能未启用",
+              }),
+            );
+          } else if (invited) {
+            ws.send(
+              JSON.stringify({
+                type: "inviteError",
+                code: "invite_forbidden",
+                reason: "受邀用户不能继续邀请其他人",
+              }),
+            );
+          } else if (options.inviteError) {
+            ws.send(
+              JSON.stringify({
+                type: "inviteError",
+                code: options.inviteError,
+                reason: "e2e invite error",
+              }),
+            );
+          } else {
+            const sendInvite = () => {
+              ws.send(
+                JSON.stringify({
+                  type: "invite",
+                  token: "e2e-invite-token",
+                  url: "http://localhost:3000/invite/e2e-invite-token",
+                  expiresAt: Math.floor(Date.now() / 1000) + 30 * 60,
+                }),
+              );
+            };
+            if (options.inviteDelayMs) {
+              setTimeout(sendInvite, options.inviteDelayMs);
+            } else {
+              sendInvite();
+            }
+          }
+          break;
         default:
           break;
       }
@@ -169,9 +223,14 @@ export async function mockProxy(page: Page) {
   });
 }
 
-export async function enterApp(page: Page, name = "外壳测试", path = "/") {
+export async function enterApp(
+  page: Page,
+  name = "外壳测试",
+  path = "/",
+  options?: MockProxyOptions,
+) {
   await installMockMedia(page);
-  await mockProxy(page);
+  await mockProxy(page, options);
   await page.goto(path);
   await page.getByTestId("connect-username").fill(name);
   await page.getByTestId("connect-submit").click();
