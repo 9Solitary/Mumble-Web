@@ -12,6 +12,8 @@
     "test:e2e": "playwright test",
     "test:e2e:cross": "playwright test --config=playwright.crossbrowser.config.ts --workers=2",
     "i18n:check": "node scripts/check-i18n.mjs",
+    "scan:secrets": "node scripts/scan-secrets.mjs",
+    "scan:secrets:history": "node scripts/scan-secrets.mjs --history",
     "preview": "vite preview"
   },
   "dependencies": {
