@@ -5,13 +5,45 @@ test("index.html 带 favicon、manifest、theme-color 和描述", async ({ page,
   await page.goto("/");
 
   await expect(page.locator('html[lang="zh-CN"]')).toHaveCount(1);
-  await expect(page.locator('link[rel="icon"][type="image/svg+xml"]')).toHaveAttribute(
+  await expect(page.locator('link[rel="icon"][sizes="16x16"]')).toHaveAttribute(
     "href",
-    "/favicon.svg",
+    "/favicon-16.png?v=3",
+  );
+  await expect(page.locator('link[rel="icon"][sizes="32x32"]')).toHaveAttribute(
+    "href",
+    "/favicon-32.png?v=3",
   );
   await expect(page.locator('link[rel="manifest"]')).toHaveAttribute(
     "href",
     "/site.webmanifest",
+  );
+  await expect(page.locator('link[rel="apple-touch-icon"]')).toHaveAttribute(
+    "href",
+    "/apple-touch-icon.png?v=3",
+  );
+  await expect(page.locator('link[rel="mask-icon"]')).toHaveAttribute(
+    "href",
+    "/brand/mark-mono.svg?v=3",
+  );
+  await expect(page.locator('meta[property="og:image"]')).toHaveAttribute(
+    "content",
+    /\/public\/og-cover\.png$/,
+  );
+  await expect(page.locator('meta[property="og:image:width"]')).toHaveAttribute(
+    "content",
+    "1200",
+  );
+  await expect(page.locator('meta[property="og:image:height"]')).toHaveAttribute(
+    "content",
+    "630",
+  );
+  await expect(page.locator('meta[name="twitter:card"]')).toHaveAttribute(
+    "content",
+    "summary_large_image",
+  );
+  await expect(page.locator('meta[name="twitter:image"]')).toHaveAttribute(
+    "content",
+    /\/public\/og-cover\.png$/,
   );
   await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute(
     "content",
@@ -33,19 +65,58 @@ test("index.html 带 favicon、manifest、theme-color 和描述", async ({ page,
   expect(json.name).toBe("Mumble Web");
   expect(json.theme_color).toBe("#080D12");
   expect(json.icons.length).toBeGreaterThanOrEqual(3);
+  const maskable = json.icons.find((icon: { purpose?: string }) =>
+    String(icon.purpose ?? "").includes("maskable"),
+  );
+  expect(maskable?.src).toBe("./icon-maskable-512.png?v=3");
+  expect(
+    json.icons.some(
+      (icon: { sizes?: string; purpose?: string }) =>
+        icon.sizes === "192x192" && icon.purpose === "any",
+    ),
+  ).toBeTruthy();
 
   for (const icon of json.icons) {
     const res = await request.get(icon.src.replace("./", "/"));
     expect(res.ok(), `${icon.src} 不可访问`).toBeTruthy();
   }
 
-  const sizes = await page.evaluate(async () => {
-    const image = new Image();
-    image.src = "/icon-192.png";
-    await image.decode();
-    return { w: image.naturalWidth, h: image.naturalHeight };
+  const maskIcon = await request.get("/brand/mark-mono.svg");
+  expect(maskIcon.ok()).toBeTruthy();
+  const maskText = await maskIcon.text();
+  expect(maskText).toContain("瑕疵版");
+  expect(maskText).toContain("#E9F1F8");
+
+  for (const icon of ["/favicon-16.png", "/favicon-32.png", "/favicon.ico"]) {
+    const res = await request.get(icon);
+    expect(res.ok(), `${icon} 不可访问`).toBeTruthy();
+  }
+
+  const imageSizes = await page.evaluate(async (sources) => {
+    const out: Record<string, { w: number; h: number }> = {};
+    for (const [key, src] of Object.entries(sources)) {
+      const image = new Image();
+      image.src = src;
+      await image.decode();
+      out[key] = { w: image.naturalWidth, h: image.naturalHeight };
+    }
+    return out;
+  }, {
+    favicon16: "/favicon-16.png",
+    favicon32: "/favicon-32.png",
+    icon192: "/icon-192.png",
+    apple: "/apple-touch-icon.png",
+    maskable: "/icon-maskable-512.png",
+    og: "/og-cover.png",
   });
-  expect(sizes).toEqual({ w: 192, h: 192 });
+  expect(imageSizes).toEqual({
+    favicon16: { w: 16, h: 16 },
+    favicon32: { w: 32, h: 32 },
+    icon192: { w: 192, h: 192 },
+    apple: { w: 180, h: 180 },
+    maskable: { w: 512, h: 512 },
+    og: { w: 1200, h: 630 },
+  });
 });
 
 test("标题跟随频道变化", async ({ page }) => {

@@ -38,18 +38,13 @@ function BrandPanel() {
   return (
     <section className="hidden min-w-0 lg:block">
       <div className="flex items-center gap-3">
-        <BrandMark className="size-11 rounded-[12px]" />
-        <div>
-          <div className="text-title font-semibold tracking-tight text-fg">Mumble Web</div>
-          <div className="text-caption text-fg-subtle">
-            {t("connect.brandSubtitle")}
-          </div>
-        </div>
+        <BrandMark className="size-11 rounded-[12px]" markClassName="size-8" />
+        <div className="text-title font-semibold tracking-tight text-fg">Mumble Web</div>
       </div>
-      <h1 className="mt-10 max-w-[13ch] text-hero text-fg">
+      <h1 className="mt-12 whitespace-nowrap text-hero text-fg">
         {t("connect.heroTitle")}
       </h1>
-      <p className="mt-3 max-w-[42ch] text-body text-fg-muted">
+      <p className="mt-3 max-w-[32rem] text-pretty text-body text-fg-muted">
         {t("connect.heroBody")}
       </p>
 
@@ -89,15 +84,10 @@ export function ConnectShell({
       <div className="relative z-10 mx-auto grid w-full max-w-5xl items-center gap-10 lg:min-h-[calc(100dvh-4rem)] lg:grid-cols-[minmax(0,1fr)_400px]">
         <BrandPanel />
         <main className="w-full max-w-[400px] justify-self-center lg:justify-self-end">
-          <div className="mb-6 flex items-center gap-3 lg:hidden">
+          <div className="mb-5 flex items-center gap-3 lg:hidden">
             <BrandMark />
-            <div className="min-w-0">
-              <div className="text-title font-semibold tracking-tight text-fg">
-                Mumble Web
-              </div>
-              <div className="truncate text-caption text-fg-subtle">
-                {t("connect.brandSubtitle")}
-              </div>
+            <div className="text-title font-semibold tracking-tight text-fg">
+              Mumble Web
             </div>
           </div>
           <div

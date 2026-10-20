@@ -2,6 +2,17 @@
   "name": "mumble-web",
   "private": true,
   "version": "0.9.0",
+  "description": "A browser client for Mumble voice servers: React frontend + Go WebRTC proxy.",
+  "license": "MIT",
+  "author": "9.Solaris",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/9Solitary/Mumble-Web.git"
+  },
+  "homepage": "https://github.com/9Solitary/Mumble-Web#readme",
+  "bugs": {
+    "url": "https://github.com/9Solitary/Mumble-Web/issues"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",

@@ -24,7 +24,7 @@ test("连接页：英文 320px 无横向滚动", async ({ page }) => {
   await page.goto("/?lang=en");
   await expect(page.getByTestId("connect-card")).toBeVisible();
   await expect(
-    page.getByRole("heading", { name: "Connect to your voice space" }),
+    page.getByRole("heading", { name: "Join voice" }),
   ).toBeVisible();
   expect(await horizontalOverflow(page)).toBeLessThanOrEqual(0);
 });

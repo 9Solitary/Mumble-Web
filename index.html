@@ -19,12 +19,31 @@
       content="Join your Mumble voice space in the browser. Low latency, one-link invites, no install."
     />
     <meta property="og:type" content="website" />
-    <meta name="twitter:card" content="summary" />
+    <meta property="og:site_name" content="Mumble Web" />
+    <meta property="og:locale" content="zh_CN" />
+    <meta property="og:locale:alternate" content="en_US" />
+    <!-- OG 图用仓库绝对地址；部署到自有域名时可改成 https://<your-host>/og-cover.png -->
+    <meta
+      property="og:image"
+      content="https://raw.githubusercontent.com/9Solitary/Mumble-Web/main/public/og-cover.png"
+    />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Mumble Web — 墨底薄荷猫头鹰标志" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta
+      name="twitter:image"
+      content="https://raw.githubusercontent.com/9Solitary/Mumble-Web/main/public/og-cover.png"
+    />
+    <meta name="twitter:image:alt" content="Mumble Web — 墨底薄荷猫头鹰标志" />
 
-    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-    <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
-    <link rel="icon" href="/favicon.ico" sizes="any" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" href="/favicon-16.png?v=3" sizes="16x16" type="image/png" />
+    <link rel="icon" href="/favicon-32.png?v=3" sizes="32x32" type="image/png" />
+    <link rel="icon" href="/favicon.ico?v=3" sizes="any" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=3" />
+    <!-- 瑕疵版 SVG：描摹清理版，仅用于 Safari pinned tab；生产图标全部走 PNG。 -->
+    <link rel="mask-icon" href="/brand/mark-mono.svg?v=3" color="#4FE3C1" />
     <link rel="manifest" href="/site.webmanifest" />
 
     <title>Mumble Web</title>

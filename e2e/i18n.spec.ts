@@ -25,7 +25,7 @@ test.describe("语言检测", () => {
     await page.goto("/");
     await expect(page.locator("html")).toHaveAttribute("lang", "zh-CN");
     await expect(
-      page.getByRole("heading", { name: "连接到你的语音空间" }),
+      page.getByRole("heading", { name: "加入语音" }),
     ).toBeVisible();
 
     const english = await browser.newContext({ locale: "en-US" });
@@ -33,7 +33,7 @@ test.describe("语言检测", () => {
     await englishPage.goto("/");
     await expect(englishPage.locator("html")).toHaveAttribute("lang", "en-US");
     await expect(
-      englishPage.getByRole("heading", { name: "Connect to your voice space" }),
+      englishPage.getByRole("heading", { name: "Join voice" }),
     ).toBeVisible();
     await english.close();
   });
@@ -49,7 +49,7 @@ test.describe("语言检测", () => {
     await page.goto("/?lang=zh");
     await expect(page.locator("html")).toHaveAttribute("lang", "zh-CN");
     await expect(
-      page.getByRole("heading", { name: "连接到你的语音空间" }),
+      page.getByRole("heading", { name: "加入语音" }),
     ).toBeVisible();
 
     // URL 只是一次性覆盖，不会改写已保存的选择。
@@ -62,7 +62,7 @@ test.describe("语言检测", () => {
     await page.goto("/?lang=en");
     await expectEnglishDocument(page);
     await expect(
-      page.getByRole("heading", { name: "Connect to your voice space" }),
+      page.getByRole("heading", { name: "Join voice" }),
     ).toBeVisible();
   });
 });
@@ -98,7 +98,7 @@ test.describe("语言切换与元信息", () => {
     await page.reload();
     await expectEnglishDocument(page);
     await expect(
-      page.getByRole("heading", { name: "Connect to your voice space" }),
+      page.getByRole("heading", { name: "Join voice" }),
     ).toBeVisible();
     expect(
       await page.evaluate(() => localStorage.getItem("mumble-web.locale")),

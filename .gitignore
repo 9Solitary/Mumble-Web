@@ -52,3 +52,6 @@ docs/local/
 # Playwright 产物
 playwright-report/
 test-results/
+
+# 品牌设计过程文件（本地，勿提交；最终 SVG/图标仍跟踪）
+brand-work/

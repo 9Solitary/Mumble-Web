@@ -1,8 +1,14 @@
 import { cn } from "@/lib/utils";
 
-// 品牌 mark：圆角方底 + 四根波形竖条，16px 下仍可辨认。
-// 与 public/favicon.svg 保持同一造型，改这里时同步改 favicon。
-export function BrandMark({ className }: { className?: string }) {
+// 品牌 mark：定稿位图（logo-bottom-left-swapped-token.png）的 owl-only alpha 版。
+// 生产用 512 主图/多尺寸 PNG；S 版 SVG 仅作归档与 Safari pinned tab，不在这里使用。
+export function BrandMark({
+  className,
+  markClassName,
+}: {
+  className?: string;
+  markClassName?: string;
+}) {
   return (
     <span
       aria-hidden="true"
@@ -11,28 +17,13 @@ export function BrandMark({ className }: { className?: string }) {
         className,
       )}
     >
-      <svg viewBox="0 0 24 24" className="size-5 text-mint" fill="none">
-        <rect x="3.4" y="9" width="2.6" height="6" rx="1.3" fill="currentColor" />
-        <rect x="7.7" y="5" width="2.6" height="14" rx="1.3" fill="currentColor" />
-        <rect
-          x="12"
-          y="7.4"
-          width="2.6"
-          height="9.2"
-          rx="1.3"
-          className="text-mint-strong"
-          fill="currentColor"
-        />
-        <rect
-          x="16.3"
-          y="10"
-          width="2.6"
-          height="4"
-          rx="1.3"
-          fill="currentColor"
-          opacity="0.55"
-        />
-      </svg>
+      <img
+        src="/brand/mark-owl-256.png"
+        srcSet="/brand/mark-owl-64.png 1x, /brand/mark-owl-128.png 2x, /brand/mark-owl-256.png 3x"
+        alt=""
+        draggable={false}
+        className={cn("size-6 select-none", markClassName)}
+      />
     </span>
   );
 }

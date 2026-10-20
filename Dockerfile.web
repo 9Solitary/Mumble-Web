@@ -17,6 +17,9 @@ RUN npm run build
 
 FROM nginx:1.27-alpine
 COPY --from=frontend /app/dist /usr/share/nginx/html
+# 许可证与第三方声明随静态站点分发（MPL/BSD 合规）
+COPY THIRD_PARTY_NOTICES.md /usr/share/nginx/html/licenses/THIRD_PARTY_NOTICES.md
+COPY THIRD_PARTY_LICENSES/ /usr/share/nginx/html/licenses/THIRD_PARTY_LICENSES/
 COPY deploy/nginx.conf.template /etc/nginx/templates/default.conf.template
 COPY deploy/render-config.sh /docker-entrypoint.d/40-render-config.sh
 RUN chmod +x /docker-entrypoint.d/40-render-config.sh

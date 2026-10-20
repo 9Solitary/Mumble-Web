@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./public/icon-192.png" width="96" height="96" alt="Mumble Web" />
+  <img src="https://raw.githubusercontent.com/9Solitary/Mumble-Web/main/public/icon-192.png?v=3" width="96" height="96" alt="Mumble Web" />
 </p>
 
 <h1 align="center">Mumble Web</h1>
@@ -9,11 +9,11 @@
 </p>
 
 <p align="center">
-  <img alt="React" src="https://img.shields.io/badge/React-19-149ECA?logo=react&logoColor=white" />
-  <img alt="Go" src="https://img.shields.io/badge/Go-1.24-00ADD8?logo=go&logoColor=white" />
-  <img alt="WebRTC" src="https://img.shields.io/badge/WebRTC-Opus-333333?logo=webrtc&logoColor=white" />
-  <img alt="Mumble" src="https://img.shields.io/badge/Mumble-compatible-4FE3C1" />
-  <img alt="i18n" src="https://img.shields.io/badge/i18n-zh--CN%20%7C%20en--US-7C3AED" />
+  <a href="https://mumble.info"><img alt="Mumble compatible" src="https://img.shields.io/badge/Mumble-compatible-4FE3C1?style=flat-square" /></a>
+  <a href="https://react.dev"><img alt="React 19" src="https://img.shields.io/badge/React-19-149ECA?style=flat-square&logo=react&logoColor=white" /></a>
+  <a href="https://go.dev"><img alt="Go 1.24" src="https://img.shields.io/badge/Go-1.24-00ADD8?style=flat-square&logo=go&logoColor=white" /></a>
+  <a href="#功能"><img alt="i18n: zh-CN | en-US" src="https://img.shields.io/badge/i18n-zh--CN%20%7C%20en--US-7C3AED?style=flat-square" /></a>
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/github/license/9Solitary/Mumble-Web?style=flat-square" /></a>
 </p>
 
 Mumble Web 是一个面向 Mumble 服务器的 Web 客户端。它由 **React 前端 + Go 代理** 组成：
@@ -24,6 +24,13 @@ Mumble Web 是一个面向 Mumble 服务器的 Web 客户端。它由 **React �
 - 成员不想安装 Mumble 客户端，但需要临时加入语音；
 - 需要通过一条邀请链接把外部成员拉进频道；
 - 希望在浏览器里完成频道、聊天、成员管理和基础设置。
+
+<p align="center">
+  <img src="./docs/screenshots/main-1440.webp" alt="Mumble Web 桌面端：频道栏、聊天、成员列表与底部语音坞" width="860" />
+</p>
+<p align="center">
+  <img src="./docs/screenshots/main-390.webp" alt="Mumble Web 移动端：单列聊天与紧凑语音坞" width="300" />
+</p>
 
 ---
 
@@ -39,7 +46,7 @@ Mumble Web 是一个面向 Mumble 服务器的 Web 客户端。它由 **React �
 - [项目结构](#项目结构)
 - [已知限制](#已知限制)
 - [路线图](#路线图)
-- [第三方组件与许可](#第三方组件与许可)
+- [许可证与第三方组件](#许可证与第三方组件)
 
 ## 功能
 
@@ -82,7 +89,7 @@ Mumble Web 是一个面向 Mumble 服务器的 Web 客户端。它由 **React �
 ### Docker Compose（推荐）
 
 ```bash
-git clone <repository-url> mumble-web
+git clone https://github.com/9Solitary/Mumble-Web.git mumble-web
 cd mumble-web
 
 cp .env.example .env
@@ -204,7 +211,7 @@ go build ./cmd/proxy
 ```
 
 新增用户可见文案请走 `t()`，并同步 `src/i18n/locales/zh-CN.json` 与 `en-US.json`；
-提交信息使用 Conventional Commits；视觉与交互约定由维护者本地维护。
+提交信息使用 Conventional Commits；视觉与交互约定见 [docs/brand/BRAND.md](docs/brand/BRAND.md)。
 
 ## 项目结构
 
@@ -225,6 +232,8 @@ server/                   Go 代理
   internal/mumbleconn/    SRV 解析与 TLS 策略
 e2e/                      Playwright 回归
 scripts/                  i18n 与敏感信息检查
+docs/brand/               品牌规范（BRAND.md）
+THIRD_PARTY_LICENSES/     第三方许可全文
 ```
 
 ## 已知限制
@@ -243,15 +252,22 @@ scripts/                  i18n 与敏感信息检查
 - [ ] 聊天记录持久化
 - [ ] 浅色主题 / 命令面板（可选）
 
-## 第三方组件与许可
+## 许可证与第三方组件
 
-本项目包含 gumble、Mumble 协议定义等第三方组件，版权与许可见
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+本项目以 **MIT License** 发布，完整文本见 [LICENSE](LICENSE)。
 
-项目自身许可证尚未确定；在补充 `LICENSE` 前，默认保留所有权利。
+- 你可以使用、修改、分发和商用，但需保留版权与许可声明；
+- 本项目不提供任何担保；
+- gumble（MPL-2.0）、Mumble 协议定义（BSD-3-Clause）等第三方组件保留其原始许可，
+  详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 与 [THIRD_PARTY_LICENSES/](THIRD_PARTY_LICENSES/)。
+
+> “Mumble” 是 Mumble 项目的商标。Mumble Web 是独立的第三方 Web 客户端，
+> 与 Mumble 项目无隶属或背书关系；本项目不使用 Mumble 官方图标。
+
+容器镜像会附带同一份声明与第三方许可全文（web 镜像 `/licenses`，代理镜像 `/app/licenses`）。
 
 ## 贡献与安全
 
 - 欢迎 Issue / PR；提交前请跑上面的检查命令；
 - 请勿在 Issue、截图或日志中暴露服务器地址、密码、TLS pin、邀请 token；
-- 安全问题请通过私下渠道联系维护者，不要公开贴出可利用细节。
+- 安全问题请通过 [GitHub Security Advisories](https://github.com/9Solitary/Mumble-Web/security/advisories/new) 私下报告，不要公开贴出可利用细节。

@@ -16,6 +16,9 @@ FROM alpine:3.20
 RUN apk add --no-cache ca-certificates tzdata
 WORKDIR /app
 COPY --from=backend /proxy /app/proxy
+# 许可证与第三方声明随二进制镜像分发（MPL/BSD 合规）
+COPY THIRD_PARTY_NOTICES.md /app/licenses/THIRD_PARTY_NOTICES.md
+COPY THIRD_PARTY_LICENSES/ /app/licenses/THIRD_PARTY_LICENSES/
 
 ENV LISTEN=":8080" \
     MUMBLE_SERVER="localhost:64738" \
