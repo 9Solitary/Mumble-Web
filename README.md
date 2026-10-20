@@ -1,113 +1,120 @@
 <p align="center">
+  <a href="README.md">English</a> · <a href="README.zh-CN.md">简体中文</a>
+</p>
+
+<p align="center">
   <img src="https://raw.githubusercontent.com/9Solitary/Mumble-Web/main/public/icon-192.png?v=3" width="96" height="96" alt="Mumble Web" />
 </p>
 
 <h1 align="center">Mumble Web</h1>
 
 <p align="center">
-  把 Mumble 语音服务器搬进浏览器：无需安装客户端，打开链接就能加入。
+  Bring your Mumble voice server into the browser: no client install, just open a link.
 </p>
 
 <p align="center">
   <a href="https://mumble.info"><img alt="Mumble compatible" src="https://img.shields.io/badge/Mumble-compatible-4FE3C1?style=flat-square" /></a>
   <a href="https://react.dev"><img alt="React 19" src="https://img.shields.io/badge/React-19-149ECA?style=flat-square&logo=react&logoColor=white" /></a>
   <a href="https://go.dev"><img alt="Go 1.24" src="https://img.shields.io/badge/Go-1.24-00ADD8?style=flat-square&logo=go&logoColor=white" /></a>
-  <a href="#功能"><img alt="i18n: zh-CN | en-US" src="https://img.shields.io/badge/i18n-zh--CN%20%7C%20en--US-7C3AED?style=flat-square" /></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/github/license/9Solitary/Mumble-Web?style=flat-square" /></a>
 </p>
 
-Mumble Web 是一个面向 Mumble 服务器的 Web 客户端。它由 **React 前端 + Go 代理** 组成：
-浏览器负责界面与 WebRTC 语音，代理负责 Mumble 协议、会话与语音帧透传，最终连接任意 Murmur 服务器。
+Mumble Web is a web client for Mumble servers. It combines a **React frontend** with a **Go proxy**:
+the browser handles the UI and WebRTC audio, while the proxy speaks the Mumble protocol, manages
+sessions, and forwards voice frames to any Murmur server.
 
-适合这些场景：
+Built for:
 
-- 成员不想安装 Mumble 客户端，但需要临时加入语音；
-- 需要通过一条邀请链接把外部成员拉进频道；
-- 希望在浏览器里完成频道、聊天、成员管理和基础设置。
+- Teams that don't want to install the Mumble client but need to hop into voice;
+- Pulling external guests into a channel with a single invite link;
+- Managing channels, chat, members, and basic settings from the browser.
 
 <p align="center">
-  <img src="./docs/screenshots/main-1440.webp" alt="Mumble Web 桌面端：频道栏、聊天、成员列表与底部语音坞" width="860" />
+  <img src="./docs/screenshots/main-1440-en.webp" alt="Mumble Web desktop: channel sidebar, chat, member list, and bottom voice dock" width="860" />
 </p>
 <p align="center">
-  <img src="./docs/screenshots/main-390.webp" alt="Mumble Web 移动端：单列聊天与紧凑语音坞" width="300" />
+  <img src="./docs/screenshots/main-390-en.webp" alt="Mumble Web mobile: single-column chat and compact voice dock" width="300" />
 </p>
 
 ---
 
-## 目录
+## Table of contents
 
-- [功能](#功能)
-- [架构](#架构)
-- [快速开始](#快速开始)
-- [配置](#配置)
-- [同名昵称](#同名昵称)
-- [邀请链接](#邀请链接)
-- [开发与测试](#开发与测试)
-- [项目结构](#项目结构)
-- [已知限制](#已知限制)
-- [路线图](#路线图)
-- [许可证与第三方组件](#许可证与第三方组件)
+- [Features](#features)
+- [Architecture](#architecture)
+- [Quick start](#quick-start)
+- [Configuration](#configuration)
+- [Duplicate nicknames](#duplicate-nicknames)
+- [Invite links](#invite-links)
+- [Development and testing](#development-and-testing)
+- [Project structure](#project-structure)
+- [Known limitations](#known-limitations)
+- [Roadmap](#roadmap)
+- [License and third-party notices](#license-and-third-party-notices)
+- [Contributing and security](#contributing-and-security)
 
-## 功能
+## Features
 
-| 模块 | 能力 |
+| Area | What you get |
 |---|---|
-| **语音** | WebRTC + Opus；按键说话 / 自由发言；自动噪声门与手动触发阈值；输入/输出设备热切换；单人音量与本地屏蔽；麦克风/耳机静音 |
-| **聊天** | 按频道文字聊天；图片粘贴/选择/拖拽发送；链接识别；消息分组与日期分隔；未读提示 |
-| **频道与成员** | 真实折叠的频道树；单击查看、双击/悬浮加入；在麦用户、说话指示、静音/闭麦/优先发言状态；成员搜索与按频道分组 |
-| **界面** | 三栏工作区；桌面左侧语音卡；移动端底部语音坞与频道/成员抽屉；设置六页签（音频/语音/快捷键/外观/诊断/关于） |
-| **体验** | 中英文即时切换；图片查看器（多图/缩放/平移/移动端手势）；Toast；错误码本地化；`prefers-reduced-motion` |
-| **运维** | 单代理同时服务静态页面与 WebSocket；Docker Compose；SRV 解析；TLS `verify` / `pin` / `insecure`；网页一键邀请 + bot API；诊断事件导出 |
+| **Voice** | WebRTC + Opus; push-to-talk / voice activity; automatic noise gate with manual threshold; hot-swap input/output devices; per-user volume and local mute; mic/headphone mute |
+| **Chat** | Per-channel text chat; paste/select/drag images; link detection; message grouping and date dividers; unread indicators |
+| **Channels and members** | Real collapsible channel tree; click to view, double-click/hover to join; talking users, speaking indicator, mute/deafen/priority-speaker states; member search and grouping by channel |
+| **UI** | Three-column workspace; desktop voice card; mobile bottom voice dock with channel/member drawers; six settings tabs (Audio, Voice, Shortcuts, Appearance, Diagnostics, About) |
+| **Experience** | Instant Chinese/English switching; image viewer (multi-image, zoom, pan, mobile gestures); toasts; localized error codes; `prefers-reduced-motion` |
+| **Operations** | One proxy serves static pages and WebSocket; Docker Compose; SRV resolution; TLS `verify` / `pin` / `insecure`; one-click web invites + bot API; diagnostics export |
 
-## 架构
+## Architecture
 
 ```text
 ┌──────────────────────────────┐
-│ 浏览器                        │
-│ React 19 + WebRTC (Opus)      │
+│ Browser                      │
+│ React 19 + WebRTC (Opus)     │
 └──────────────┬───────────────┘
                │ WebSocket JSON + RTP
 ┌──────────────▼───────────────┐
-│ Go 代理                       │
-│ 控制桥：gumble                │
-│ 媒体桥：Pion，Opus 帧透传      │
+│ Go proxy                     │
+│ Control bridge: gumble       │
+│ Media bridge: Pion, Opus     │
+│ frame passthrough            │
 └──────────────┬───────────────┘
                │ TCP + TLS + Protobuf
                │ Mumble UDPTunnel
 ┌──────────────▼───────────────┐
-│ Murmur / Mumble 服务器        │
+│ Murmur / Mumble server       │
 └──────────────────────────────┘
 ```
 
-- **控制通道**：WebSocket JSON，负责登录、频道树、用户状态、文字消息、静音/闭麦。
-- **语音通道**：浏览器 WebRTC（原生 Opus、回声消除、抖动缓冲）⇄ 代理；代理不解码、不重编码，
-  将 Opus 负载在 RTP 与 Mumble 语音帧之间透传，每个说话人一条 RTP track。
-- **上游语音**：当前走 Mumble `UDPTunnel`（TCP 隧道）；原生 UDP + AES-OCB 是后续升级项。
+- **Control channel**: WebSocket JSON for login, channel tree, user state, text messages, and mute/deafen.
+- **Voice channel**: browser WebRTC (native Opus, echo cancellation, jitter buffer) ⇄ proxy. The proxy
+  does not decode or re-encode; it forwards Opus payloads between RTP and Mumble voice frames, with one
+  RTP track per speaker.
+- **Upstream voice**: currently Mumble `UDPTunnel` (TCP tunnel); native UDP + AES-OCB is a future upgrade.
 
-## 快速开始
+## Quick start
 
-### Docker Compose（推荐）
+### Docker Compose (recommended)
 
 ```bash
 git clone https://github.com/9Solitary/Mumble-Web.git mumble-web
 cd mumble-web
 
 cp .env.example .env
-# 编辑 .env：MUMBLE_SERVER、MUMBLE_TLS 等
+# Edit .env: MUMBLE_SERVER, MUMBLE_TLS, etc.
 
 docker compose up -d
 ```
 
-打开 `http://localhost:8080`，输入昵称与服务器密码即可。
+Open `http://localhost:8080`, enter a nickname and the server password.
 
 ```bash
-docker compose logs -f            # 查看日志
-docker compose ps                 # 容器状态
-docker compose down               # 停止
-docker compose up -d --build      # 更新代码后重建
+docker compose logs -f            # follow logs
+docker compose ps                 # container status
+docker compose down               # stop
+docker compose up -d --build      # rebuild after code changes
 ```
 
-纯 Docker（不用 Compose）：
+Plain Docker (without Compose):
 
 ```bash
 docker build -t mumble-web-proxy .
@@ -117,92 +124,100 @@ docker run -p 8081:8081 -p 50000:50000/udp mumble-web-proxy
 docker run -p 8080:80 -e PROXY_ORIGIN=http://<proxy-host>:8081 mumble-web
 ```
 
-> 生产部署前请阅读 [DEPLOYMENT.md](DEPLOYMENT.md)，其中包含 web/proxy 分离部署、HTTPS、
-> UDP 端口与迁移说明。
+> Read [DEPLOYMENT.md](DEPLOYMENT.md) before deploying to production. It covers split web/proxy
+> deployments, HTTPS, UDP ports, and migration.
 
-### 本地开发
+### Local development
 
 ```bash
-# 前端
+# Frontend
 npm install
-npm run build          # 生成 dist/
+npm run build          # writes dist/
 npm run dev            # http://localhost:3000
 
-# 代理（另开终端）
+# Proxy (separate terminal)
 cd server
 go run ./cmd/proxy -static ../dist
 ```
 
-Vite 开发服务器会把 `/api` 和 `/ws` 代理到 `localhost:8080`。
+The Vite dev server proxies `/api` and `/ws` to `localhost:8080`.
 
-## 配置
+## Configuration
 
-代理通过环境变量（或同名命令行参数）配置：
+The proxy is configured with environment variables (or matching CLI flags):
 
-| 变量 | 默认值 | 说明 |
+| Variable | Default | Description |
 |---|---|---|
-| `MUMBLE_SERVER` | `localhost:64738` | 上游服务器；无端口时自动 SRV 解析 |
+| `MUMBLE_SERVER` | `localhost:64738` | Upstream server; SRV lookup is used when no port is given |
 | `MUMBLE_TLS` | `verify` | `verify` / `pin:<sha256>` / `insecure` |
-| `LISTEN` / `PORT` | `:8080` | HTTP/WebSocket 监听 |
-| `RTC_UDP_PORT` | `50000` | WebRTC ICE UDP 端口，需对浏览器可达 |
-| `RTC_PUBLIC_IP` | 空 | 代理位于 NAT 后时填写公网 IP |
-| `STATIC_DIR` | `dist` | 前端静态资源目录 |
-| `ALLOW_SERVER_OVERRIDE` | `true` | 是否允许连接页自选上游服务器 |
-| `WEB_INVITE_ENABLED` | `true` | 是否允许已登录用户在网页里创建邀请 |
-| `INVITE_SECRET` | 空 | bot 邀请创建 API 的 Bearer 密钥；留空则关闭 bot 创建 |
-| `INVITE_TTL` | `30m` | 邀请链接有效期 |
-| `FRONTEND_URL` | 空 | 生成邀请链接使用的前端地址；留空时网页邀请按 WS Origin / 请求 Host 推断 |
+| `LISTEN` / `PORT` | `:8080` | HTTP/WebSocket listener |
+| `RTC_UDP_PORT` | `50000` | WebRTC ICE UDP port; must be reachable from browsers |
+| `RTC_PUBLIC_IP` | empty | Public IP when the proxy is behind NAT |
+| `STATIC_DIR` | `dist` | Frontend static asset directory |
+| `ALLOW_SERVER_OVERRIDE` | `true` | Allow users to choose an upstream server on the connect screen |
+| `WEB_INVITE_ENABLED` | `true` | Allow signed-in users to create invites in the web UI |
+| `INVITE_SECRET` | empty | Bearer secret for the bot invite API; empty disables bot-created invites |
+| `INVITE_TTL` | `30m` | Invite link lifetime |
+| `FRONTEND_URL` | empty | Frontend base URL for invite links; inferred from WS Origin / request Host when empty |
 
-web 容器另有 `PROXY_ORIGIN`、`PROXY_UPSTREAM`、`WEB_PORT`，详见
-[.env.example](.env.example) 与 [DEPLOYMENT.md](DEPLOYMENT.md)。
+The web container also accepts `PROXY_ORIGIN`, `PROXY_UPSTREAM`, and `WEB_PORT`; see
+[.env.example](.env.example) and [DEPLOYMENT.md](DEPLOYMENT.md).
 
-## 同名昵称
+## Duplicate nicknames
 
-Mumble 的昵称是单一身份。本项目在**网页端之间**做了确定性处理：
+Mumble nicknames are a single identity. This project makes **web-client-to-web-client** behavior
+deterministic:
 
-- 两个标签页/客户端同名：**后登录的网页端被拒绝**，提示「这个昵称已经被占用」，旧会话保持在线；
-- 同一标签页刷新或断线重连：凭本页 `clientId`（`sessionStorage`）恢复原会话，不会被误判为重名。
+- Two tabs/clients with the same name: **the later web login is rejected** with "this nickname is
+  already in use"; the existing session stays online.
+- Refreshing or reconnecting in the same tab restores the original session via the page's `clientId`
+  (`sessionStorage`), so it is not mistaken for a duplicate.
 
-但 **原生 Mumble 客户端参与的同名冲突仍由 Murmur 决定**：Murmur 的默认行为是新登录踢掉旧会话。
-如果原生客户端先在线，网页端再用同名登录，原生客户端仍会被踢；代理无法在登录前看到原生在线用户，
-也无法阻止原生客户端后来登录。维护者本地有完整的可行性记录，不随仓库发布。
+However, **conflicts involving native Mumble clients are still decided by Murmur**: by default, a new
+login kicks the old session. If a native client is online first and a web client logs in with the same
+name, the native client will still be kicked; the proxy cannot see native users before login, nor
+prevent a native client from logging in later. The maintainer keeps full feasibility notes locally;
+they are not published with the repository.
 
-## 邀请链接
+## Invite links
 
-已登录用户可以在主界面顶栏点「邀请」，直接生成一次性链接：
+Signed-in users can click **Invite** in the top bar to create a one-time link:
 
-- 链接在 `INVITE_TTL` 内有效，首个成功登录的会话认领，退出/断线后立即作废；
-- 受邀用户只看到昵称输入框，服务器和密码由服务端保存，不出现在 URL；
-- 受邀用户（含断线恢复的受邀会话）不能继续邀请其他人；
-- 邀请为纯内存态，代理重启即清空；
-- 部署时可设置 `WEB_INVITE_ENABLED=false` 关闭网页入口；已有邀请校验、受邀登录与恢复不受影响。
+- Valid for `INVITE_TTL`; claimed by the first successful login; invalidated immediately on logout or
+  disconnect.
+- Invitees only see a nickname field; the server and password are stored server-side and never appear
+  in the URL.
+- Invitees (including reconnecting invited sessions) cannot invite anyone else.
+- Invites are in-memory only; restarting the proxy clears them.
+- Set `WEB_INVITE_ENABLED=false` to hide the web entry point; existing invite validation, invited
+  login, and reconnect are unaffected.
 
-机器人后端仍可调用 `POST /api/invites`，但只在配置 `INVITE_SECRET` 时开放：
+Bots can still call `POST /api/invites`, but only when `INVITE_SECRET` is configured:
 
 ```bash
 curl -X POST https://<host>:8080/api/invites \
   -H "Authorization: Bearer $INVITE_SECRET" \
   -H "Content-Type: application/json" \
-  -d '{"serverAddr":"可选，默认代理上游","password":"可选，服务器密码"}'
+  -d '{"serverAddr":"optional, defaults to the proxy upstream","password":"optional, server password"}'
 # => {"token":"...","url":"https://<host>:8080/invite/<token>","expiresAt":1729000000}
 ```
 
-- `INVITE_SECRET` 只部署在代理与 bot 后端，不要下发给普通用户；
-- bot 与网页邀请共用同一份内存存储，`GET /api/invites/{token}` 契约不变。
+- Keep `INVITE_SECRET` on the proxy and bot backend only; never ship it to end users.
+- Bot and web invites share the same in-memory store; the `GET /api/invites/{token}` contract is unchanged.
 
-## 开发与测试
+## Development and testing
 
 ```bash
-npm run i18n:check       # 中英文 key 对齐
-npm run lint             # ESLint（含 i18next 文案检查）
+npm run i18n:check       # zh/en key parity
+npm run lint             # ESLint (includes i18next copy checks)
 npm test                 # Vitest
 npx playwright test --workers=4
-npm run test:e2e:cross   # Firefox + WebKit 冒烟
-npm run scan:secrets     # 跟踪文件敏感信息扫描
+npm run test:e2e:cross   # Firefox + WebKit smoke
+npm run scan:secrets     # tracked-file secret scan
 npm run build            # tsc + Vite
 ```
 
-Go 代理：
+Go proxy:
 
 ```bash
 cd server
@@ -210,64 +225,74 @@ go test ./...
 go build ./cmd/proxy
 ```
 
-新增用户可见文案请走 `t()`，并同步 `src/i18n/locales/zh-CN.json` 与 `en-US.json`；
-提交信息使用 Conventional Commits；视觉与交互约定见 [docs/brand/BRAND.md](docs/brand/BRAND.md)。
+New user-facing copy must go through `t()` and be added to both `src/i18n/locales/zh-CN.json` and
+`en-US.json`. Use Conventional Commits; visual and interaction rules live in
+[docs/brand/BRAND.md](docs/brand/BRAND.md).
 
-## 项目结构
+## Project structure
 
 ```text
-src/                      React 前端
-  components/             界面组件（外壳/频道/聊天/成员/设置/查看器）
-  components/settings/    设置六页签
-  hooks/                  未读、快捷键、边缘滑动、语音状态
-  lib/                    协议、MumbleClient、图片压缩、诊断、shortcuts
-  i18n/                   i18next 初始化与中英文资源
+src/                      React frontend
+  components/             UI components (shell/channels/chat/members/settings/viewer)
+  components/settings/    Six settings tabs
+  hooks/                  Unread, shortcuts, edge swipe, voice state
+  lib/                    Protocol, MumbleClient, image compression, diagnostics, shortcuts
+  i18n/                   i18next init and zh/en resources
   store/                  appStore / shortcutStore / uiStore
-  styles/tokens.css       设计令牌
-server/                   Go 代理
-  cmd/proxy/              入口、环境变量、诊断
-  internal/bridge/        会话、注册表、WebRTC、语音桥
-  internal/gumble/        Mumble 协议栈（vendor + 补丁）
-  internal/invite/        一次性邀请存储
-  internal/mumbleconn/    SRV 解析与 TLS 策略
-e2e/                      Playwright 回归
-scripts/                  i18n 与敏感信息检查
-docs/brand/               品牌规范（BRAND.md）
-THIRD_PARTY_LICENSES/     第三方许可全文
+  styles/tokens.css       Design tokens
+server/                   Go proxy
+  cmd/proxy/              Entrypoint, env, diagnostics
+  internal/bridge/        Sessions, registry, WebRTC, voice bridge
+  internal/gumble/        Mumble protocol stack (vendor + patches)
+  internal/invite/        One-time invite store
+  internal/mumbleconn/    SRV resolution and TLS policy
+e2e/                      Playwright regressions
+scripts/                  i18n and secret checks
+docs/brand/               Brand guidelines (BRAND.md)
+THIRD_PARTY_LICENSES/     Full third-party license texts
 ```
 
-## 已知限制
+## Known limitations
 
-- 上游语音目前走 Mumble `UDPTunnel`（TCP 隧道），延迟与抗丢包不如原生 UDP；原生 UDP/AES-OCB 在路线图中。
-- 图片消息受 Murmur 文本消息长度限制，发送前会压缩；**原图不保留**。
-- 原生 Mumble 客户端与网页端的同名冲突无法由代理阻止，见[同名昵称](#同名昵称)。
-- 聊天记录不落盘，刷新/重连后从服务器重新同步。
-- 目前仅提供深色主题。
+- Upstream voice currently uses Mumble `UDPTunnel` (TCP tunnel); latency and loss resilience are below
+  native UDP. Native UDP/AES-OCB is on the roadmap.
+- Image messages are limited by Murmur's text-message size and are compressed before sending;
+  **originals are not retained**.
+- Duplicate-name conflicts with native Mumble clients cannot be prevented by the proxy; see
+  [Duplicate nicknames](#duplicate-nicknames).
+- Chat history is not persisted; it re-syncs from the server after a refresh or reconnect.
+- Dark theme only for now.
 
-## 路线图
+## Roadmap
 
-- [ ] 原生 UDP 语音（AES-OCB），替换 TCP 隧道
-- [ ] WebTransport 语音通道（替代 WebRTC）
-- [ ] 用户头像（Mumble texture）
-- [ ] 聊天记录持久化
-- [ ] 浅色主题 / 命令面板（可选）
+- [ ] Native UDP voice (AES-OCB), replacing the TCP tunnel
+- [ ] WebTransport voice channel (replacing WebRTC)
+- [ ] User avatars (Mumble texture)
+- [ ] Persistent chat history
+- [ ] Light theme / command palette (optional)
 
-## 许可证与第三方组件
+## License and third-party notices
 
-本项目以 **MIT License** 发布，完整文本见 [LICENSE](LICENSE)。
+Released under the **MIT License**; see [LICENSE](LICENSE).
 
-- 你可以使用、修改、分发和商用，但需保留版权与许可声明；
-- 本项目不提供任何担保；
-- gumble（MPL-2.0）、Mumble 协议定义（BSD-3-Clause）等第三方组件保留其原始许可，
-  详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 与 [THIRD_PARTY_LICENSES/](THIRD_PARTY_LICENSES/)。
+- You may use, modify, distribute, and commercialize it, provided copyright and license notices are
+  retained.
+- No warranty is provided.
+- Third-party components such as gumble (MPL-2.0) and the Mumble protocol definitions (BSD-3-Clause)
+  keep their original licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and
+  [THIRD_PARTY_LICENSES/](THIRD_PARTY_LICENSES/).
 
-> “Mumble” 是 Mumble 项目的商标。Mumble Web 是独立的第三方 Web 客户端，
-> 与 Mumble 项目无隶属或背书关系；本项目不使用 Mumble 官方图标。
+> "Mumble" is a trademark of the Mumble project. Mumble Web is an independent third-party web client,
+> not affiliated with or endorsed by the Mumble project; it does not use the official Mumble icon.
 
-容器镜像会附带同一份声明与第三方许可全文（web 镜像 `/licenses`，代理镜像 `/app/licenses`）。
+Container images include the same notices and full third-party license texts (web image `/licenses`,
+proxy image `/app/licenses`).
 
-## 贡献与安全
+## Contributing and security
 
-- 欢迎 Issue / PR；提交前请跑上面的检查命令；
-- 请勿在 Issue、截图或日志中暴露服务器地址、密码、TLS pin、邀请 token；
-- 安全问题请通过 [GitHub Security Advisories](https://github.com/9Solitary/Mumble-Web/security/advisories/new) 私下报告，不要公开贴出可利用细节。
+- Issues and PRs are welcome; run the checks above before submitting.
+- Please do not expose server addresses, passwords, TLS pins, or invite tokens in issues, screenshots,
+  or logs.
+- Report security issues privately via
+  [GitHub Security Advisories](https://github.com/9Solitary/Mumble-Web/security/advisories/new).
+  Do not post exploit details publicly.
