@@ -149,7 +149,14 @@ test.describe("英文界面回归", () => {
     await panel.getByTestId("voice-settings").click();
     const dialog = page.getByRole("dialog");
     await expect(dialog.getByRole("heading", { name: "Settings" })).toBeVisible();
-    for (const name of ["Audio", "Voice", "Appearance", "Diagnostics", "About"]) {
+    for (const name of [
+      "Audio",
+      "Voice",
+      "Shortcuts",
+      "Appearance",
+      "Diagnostics",
+      "About",
+    ]) {
       await expect(dialog.getByRole("tab", { name })).toBeVisible();
     }
     await dialog.getByTestId("settings-tab-appearance").click();
@@ -318,6 +325,9 @@ test.describe("英文 320px / 邀请页", () => {
     await expect(page.getByTestId("session-change-name")).toContainText(
       "Use another name",
     );
+    await expect(page.getByTestId("session-ended")).toContainText(
+      "This page will not reconnect automatically.",
+    );
     await expectNoHorizontalScroll(page);
 
     await page.route("**/api/invites/**", (route) =>
@@ -388,5 +398,48 @@ test.describe("英文 320px / 邀请页", () => {
     await expectNoHorizontalScroll(page);
     await page.keyboard.press("Escape");
     await expect(sheet).toBeHidden();
+  });
+
+  test("英文 320px：设置六个 Tab、快捷键设置与帮助不溢出", async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 568 });
+    await enterApp(page, "English settings", "/?lang=en");
+
+    await page.getByTestId("voice-dock").getByTestId("voice-settings").click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+
+    for (const [name, panel] of [
+      ["Audio", "settings-panel-audio"],
+      ["Voice", "settings-panel-voice"],
+      ["Shortcuts", "settings-panel-shortcuts"],
+      ["Appearance", "settings-panel-appearance"],
+      ["Diagnostics", "settings-panel-diagnostics"],
+      ["About", "settings-panel-about"],
+    ] as const) {
+      await dialog.getByRole("tab", { name }).click();
+      await expect(dialog.getByTestId(panel)).toBeVisible();
+      await expectNoHorizontalScroll(page);
+    }
+
+    await dialog.getByRole("tab", { name: "Shortcuts" }).click();
+    await expect(dialog.getByText("Keyboard shortcuts", { exact: true })).toBeVisible();
+    await expect(dialog.getByTestId("shortcut-value-toggleMute")).toHaveText(
+      "Ctrl+Shift+M",
+    );
+    await dialog.getByTestId("shortcut-change-toggleMute").click();
+    await expect(dialog).toContainText("Recording: Mute microphone / unmute");
+    await page.keyboard.press("Escape");
+    await expect(dialog.getByTestId("shortcut-recording")).toBeHidden();
+
+    await dialog.getByTestId("settings-done").click();
+    await expect(dialog).toBeHidden();
+    await page.keyboard.press("Control+Shift+Slash");
+    const help = page.getByTestId("shortcuts-dialog");
+    await expect(help).toBeVisible();
+    await expect(help).toContainText("Push to talk");
+    await expect(help).toContainText("Ctrl+Shift+M");
+    await expectNoHorizontalScroll(page);
+    await page.keyboard.press("Escape");
+    await expect(help).toBeHidden();
   });
 });

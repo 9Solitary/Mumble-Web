@@ -179,6 +179,7 @@ test("图片点击打开查看器，Esc 关闭", async ({ page }) => {
 
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
+  await expect(thumb).toBeFocused();
 });
 
 test("多图切换、移动工具条、双指缩放与左右滑动", async ({ page }) => {

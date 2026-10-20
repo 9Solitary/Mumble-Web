@@ -85,11 +85,13 @@ test("390px：聊天、静音、频道抽屉加入、离开、设置可用", asy
   const composer = await page.getByTestId("composer-input").boundingBox();
   expect(composer?.width).toBeGreaterThan(180);
 
-  // 静音 / 取消静音
-  await page.getByRole("button", { name: "静音" }).click();
-  await expect(page.getByRole("button", { name: "取消静音" })).toBeVisible();
-  await page.getByRole("button", { name: "取消静音" }).click();
-  await expect(page.getByRole("button", { name: "静音" })).toBeVisible();
+  // 麦克风静音 / 取消麦克风静音
+  await page.getByRole("button", { name: "麦克风静音" }).click();
+  await expect(
+    page.getByRole("button", { name: "取消麦克风静音" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "取消麦克风静音" }).click();
+  await expect(page.getByRole("button", { name: "麦克风静音" })).toBeVisible();
 
   // 抽屉：选择频道 → 加入 → 关闭
   await page.getByRole("button", { name: "频道" }).click();

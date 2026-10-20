@@ -67,7 +67,7 @@ test("1024px：成员栏收起，从聊天头打开成员抽屉", async ({ page 
   await expect(page.getByTestId("member-list")).toBeHidden();
   const open = page.getByTestId("chat-open-members");
   await expect(open).toBeVisible();
-  await expect(open).toHaveAttribute("aria-label", "成员（4）");
+  await expect(open).toHaveAttribute("aria-label", "成员 4");
   await open.click();
 
   const sheet = page.locator('[data-slot="sheet-content"]');

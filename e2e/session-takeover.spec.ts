@@ -88,6 +88,10 @@ test("被顶号后停在终止页，不自动重连；重新进入可反向接�
   await expect(page.getByText("这个昵称在另一处登录了")).toBeVisible({
     timeout: 10_000,
   });
+  const ended = page.getByTestId("session-ended");
+  await expect(ended).toContainText("这个页面不会自动重连");
+  await expect(ended).toContainText("同名用户");
+  await expect(ended).toContainText("mock:64738");
   await expect(page.getByRole("button", { name: "重新进入" })).toBeVisible();
 
   await page.waitForTimeout(1500);

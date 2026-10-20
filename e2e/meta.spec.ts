@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { enterApp } from "./helpers";
+import { enterApp, installMockMedia } from "./helpers";
 
 test("index.html 带 favicon、manifest、theme-color 和描述", async ({ page, request }) => {
   await page.goto("/");
@@ -52,6 +52,72 @@ test("标题跟随频道变化", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await enterApp(page, "标题测试");
   await expect(page).toHaveTitle("根频道 · Mumble Web");
+});
+
+test("标题未读：其他频道来消息显示 (1)，点进频道后清除", async ({ page }) => {
+  await installMockMedia(page);
+  await page.routeWebSocket("**/ws", (ws) => {
+    ws.send(
+      JSON.stringify({
+        type: "hello",
+        sid: "e2e-unread-title",
+        version: "e2e",
+        server: {
+          address: "mock:64738",
+          resolved: "127.0.0.1:64738",
+          tlsMode: "insecure",
+          voice: "tcp-tunnel",
+        },
+      }),
+    );
+    ws.onMessage((raw) => {
+      const env = JSON.parse(String(raw));
+      if (env.type !== "connect") return;
+      ws.send(
+        JSON.stringify({
+          type: "connected",
+          self: { session: 1, name: "标题未读", channelId: 0 },
+        }),
+      );
+      for (const channel of [
+        { id: 0, parentId: -1, name: "根频道", description: "", position: 0, temporary: false },
+        { id: 1, parentId: 0, name: "闲聊", description: "", position: 1, temporary: false },
+      ]) {
+        ws.send(JSON.stringify({ type: "channel", channel }));
+      }
+      ws.send(
+        JSON.stringify({
+          type: "config",
+          config: { maxMessageLength: 5000, maxImageMessageLength: 131072 },
+        }),
+      );
+      ws.send(JSON.stringify({ type: "synced" }));
+      setTimeout(() => {
+        ws.send(
+          JSON.stringify({
+            type: "textMessage",
+            text: {
+              sender: 2,
+              senderName: "机器人小助手",
+              channelIds: [1],
+              message: "来一条未读消息",
+              time: Math.floor(Date.now() / 1000),
+            },
+          }),
+        );
+      }, 120);
+    });
+  });
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto("/");
+  await page.getByTestId("connect-username").fill("标题未读");
+  await page.getByTestId("connect-submit").click();
+  await expect(page.getByTestId("messages")).toBeVisible();
+  await expect(page).toHaveTitle("(1) 根频道 · Mumble Web");
+
+  await page.getByTestId("channel-1").click();
+  await expect(page).toHaveTitle("闲聊 · Mumble Web");
 });
 
 test("会话终止时标题变为“会话已结束”", async ({ page }) => {

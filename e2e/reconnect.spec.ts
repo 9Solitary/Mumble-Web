@@ -87,9 +87,11 @@ test("WS 异常断开后自动重连并重放 connect", async ({ page }) => {
   // 服务端以 1011 异常断开（契约 4：上游 Mumble 断开）
   firstWs!.close({ code: 1011, reason: "upstream lost" });
 
-  // 出现重连提示条
+  // 出现重连提示条；标题与状态胶囊同步
   const banner = page.getByText(/连接已断开，正在重连/);
   await expect(banner).toBeVisible();
+  await expect(page).toHaveTitle("重连中 · Mumble Web");
+  await expect(page.getByTestId("connection-pill")).toContainText("重连中");
 
   // 自动发起新 WS 并重放 connect（带已保存凭据）
   await expect
@@ -104,5 +106,6 @@ test("WS 异常断开后自动重连并重放 connect", async ({ page }) => {
 
   // 重连成功后提示条消失，回到主界面
   await expect(banner).toBeHidden();
+  await expect(page).toHaveTitle("根频道 · Mumble Web");
   await expect(page.locator("button:has(svg.lucide-settings):visible")).toBeVisible();
 });

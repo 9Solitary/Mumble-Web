@@ -68,7 +68,9 @@ test.describe("设置页短屏与诊断", () => {
     await page.waitForTimeout(300);
 
     const dialog = page.getByRole("dialog");
-    await expect(dialog).toContainText(/输出音量\s*100%/);
+    const outputVolume = dialog.getByTestId("settings-output-volume");
+    await expect(outputVolume).toContainText("输出音量");
+    await expect(outputVolume).toContainText("100%");
     await expect(dialog).not.toContainText("0% 会听不到任何声音");
   });
 
@@ -89,7 +91,7 @@ test.describe("设置页短屏与诊断", () => {
     await page.getByRole("tab", { name: "诊断" }).click();
     await expect(page.getByRole("button", { name: "复制诊断信息" })).toBeVisible();
     await expect(page.getByRole("button", { name: "完成" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "恢复默认" })).toBeVisible();
+    await expect(page.getByTestId("settings-reset")).toBeVisible();
 
     // 不需要滚到底部也能关闭设置
     await page.keyboard.press("Escape");
