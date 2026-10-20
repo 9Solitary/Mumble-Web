@@ -6,22 +6,32 @@ import {
   DialogDescription,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { ChevronLeft, ChevronRight, Download, ExternalLink, Minus, Plus, X } from "lucide-react";
+import {
+  clampZoom,
+  LIGHTBOX_MAX_ZOOM,
+  LIGHTBOX_MIN_ZOOM,
+  pinchZoom,
+  swipeDirection,
+} from "@/lib/lightbox";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  ExternalLink,
+  Maximize2,
+  Minus,
+  Plus,
+  X,
+} from "lucide-react";
 
-const MIN_ZOOM = 0.05;
-const MAX_ZOOM = 8;
 const ZOOM_STEP = 1.25;
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
-}
 
 function fitFor(naturalW: number, naturalH: number): number {
   const maxW = window.innerWidth * 0.92;
   const maxH = window.innerHeight * 0.76;
   const fit = Math.min(maxW / naturalW, maxH / naturalH);
   // 小图自动放大（最多 4 倍），避免点开后和缩略图一样大。
-  return clamp(fit, MIN_ZOOM, 4);
+  return clampZoom(Math.min(fit, 4));
 }
 
 function filenameFor(src: string, index: number): string {
@@ -52,7 +62,10 @@ export function ImageLightbox({
   const viewportRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
   const panRef = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
-  const didPanRef = useRef(false);
+  const pointersRef = useRef(new Map<number, { x: number; y: number }>());
+  const pinchRef = useRef<{ distance: number; zoom: number } | null>(null);
+  const swipeRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
+  const didGestureRef = useRef(false);
 
   const current = images[index] ?? "";
   const total = images.length;
@@ -64,24 +77,29 @@ export function ImageLightbox({
       setFitZoom(1);
       setNatural(null);
       setFailed(false);
+      pointersRef.current.clear();
+      pinchRef.current = null;
+      swipeRef.current = null;
+      panRef.current = null;
+      setPanning(false);
       onIndexChange((index + delta + total) % total);
     },
     [index, onIndexChange, total],
   );
 
   const zoomBy = useCallback((factor: number) => {
-    setZoom((z) => clamp(z * factor, MIN_ZOOM, MAX_ZOOM));
+    setZoom((value) => clampZoom(value * factor));
   }, []);
 
   const download = useCallback(() => {
     if (!current) return;
-    const a = document.createElement("a");
-    a.href = current;
-    a.download = filenameFor(current, index);
-    a.rel = "noopener";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    const anchor = document.createElement("a");
+    anchor.href = current;
+    anchor.download = filenameFor(current, index);
+    anchor.rel = "noopener";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
   }, [current, index]);
 
   const openInTab = useCallback(() => {
@@ -119,25 +137,53 @@ export function ImageLightbox({
       const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
       const delta = e.deltaY * unit;
       if (!delta) return;
-      const factor = clamp(Math.exp(-delta * 0.003), 0.8, 1.25);
-      setZoom((z) => clamp(z * factor, MIN_ZOOM, MAX_ZOOM));
+      const factor = Math.min(1.25, Math.max(0.8, Math.exp(-delta * 0.003)));
+      setZoom((value) => clampZoom(value * factor));
     };
     const targets: HTMLElement[] = [];
     if (viewportRef.current) targets.push(viewportRef.current);
     if (imageRef.current) targets.push(imageRef.current);
-    targets.forEach((el) => el.addEventListener("wheel", onWheel, { passive: false }));
-    return () => targets.forEach((el) => el.removeEventListener("wheel", onWheel));
+    targets.forEach((el) =>
+      el.addEventListener("wheel", onWheel, { passive: false }),
+    );
+    return () =>
+      targets.forEach((el) => el.removeEventListener("wheel", onWheel));
   }, [natural]);
 
-  const endPan = (e: React.PointerEvent<HTMLDivElement>) => {
+  const releasePointer = (pointerId: number) => {
     const el = viewportRef.current;
-    if (el?.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
-    panRef.current = null;
-    setPanning(false);
+    if (el?.hasPointerCapture(pointerId)) el.releasePointerCapture(pointerId);
   };
 
-  const zoomLabel = `${Math.round(zoom * 100)}%`;
-  const canPan = !!natural;
+  const endGesture = (e: React.PointerEvent<HTMLDivElement>, allowSwipe: boolean) => {
+    const wasPinching = pinchRef.current != null;
+    const swipe =
+      swipeRef.current?.pointerId === e.pointerId ? swipeRef.current : null;
+    const wasPanning = panRef.current != null;
+
+    pointersRef.current.delete(e.pointerId);
+    if (pointersRef.current.size < 2) pinchRef.current = null;
+    swipeRef.current = null;
+    panRef.current = null;
+    setPanning(false);
+    releasePointer(e.pointerId);
+
+    if (
+      allowSwipe &&
+      swipe &&
+      !wasPinching &&
+      !wasPanning &&
+      !didGestureRef.current
+    ) {
+      const direction = swipeDirection(e.clientX - swipe.x, e.clientY - swipe.y);
+      if (direction !== 0) {
+        didGestureRef.current = true;
+        go(direction);
+      }
+    }
+  };
+
+  const canPan = !!natural && zoom > fitZoom + 0.001;
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -151,30 +197,36 @@ export function ImageLightbox({
         </DialogDescription>
 
         <div className="fixed inset-0 z-50 flex h-screen w-screen flex-col bg-overlay">
-          {/* 顶栏 */}
-          <div className="flex h-14 shrink-0 items-center gap-2 px-3">
-            <span className="min-w-0 truncate font-mono text-xs text-fg-muted">
+          {/* 顶栏：移动端隐藏非核心按钮，保留 44px 触控目标 */}
+          <div className="flex h-14 shrink-0 items-center gap-2 px-2 sm:px-3">
+            <span
+              data-testid="lightbox-counter"
+              className="min-w-0 flex-1 truncate font-mono text-xs text-fg-muted"
+            >
               {total > 1 ? t("lightbox.counter", { index: index + 1, total }) : ""}
             </span>
-            <div className="ml-auto flex items-center gap-1">
+            <div
+              data-testid="lightbox-toolbar"
+              className="flex shrink-0 items-center gap-1"
+            >
               <button
                 type="button"
                 onClick={() => zoomBy(1 / ZOOM_STEP)}
-                disabled={zoom <= MIN_ZOOM + 0.001}
+                disabled={zoom <= LIGHTBOX_MIN_ZOOM + 0.001}
                 aria-label={t("lightbox.zoomOut")}
-                className="grid size-9 place-items-center rounded-md text-fg-muted hover:bg-fg/10 hover:text-fg disabled:opacity-30"
+                className="grid size-11 place-items-center rounded-md text-fg-muted hover:bg-fg/10 hover:text-fg disabled:opacity-30 sm:size-9"
               >
                 <Minus className="size-4" />
               </button>
-              <span className="min-w-12 text-center font-mono text-xs text-fg-muted">
-                {zoomLabel}
+              <span className="min-w-10 text-center font-mono text-[11px] text-fg-muted sm:text-xs">
+                {Math.round(zoom * 100)}%
               </span>
               <button
                 type="button"
                 onClick={() => zoomBy(ZOOM_STEP)}
-                disabled={zoom >= MAX_ZOOM - 0.001}
+                disabled={zoom >= LIGHTBOX_MAX_ZOOM - 0.001}
                 aria-label={t("lightbox.zoomIn")}
-                className="grid size-9 place-items-center rounded-md text-fg-muted hover:bg-fg/10 hover:text-fg disabled:opacity-30"
+                className="grid size-11 place-items-center rounded-md text-fg-muted hover:bg-fg/10 hover:text-fg disabled:opacity-30 sm:size-9"
               >
                 <Plus className="size-4" />
               </button>
@@ -182,7 +234,7 @@ export function ImageLightbox({
                 type="button"
                 onClick={() => setZoom(1)}
                 aria-label={t("lightbox.actualSize")}
-                className="h-9 rounded-md px-2 font-mono text-xs text-fg-muted hover:bg-fg/10 hover:text-fg"
+                className="hidden h-9 rounded-md px-2 font-mono text-xs text-fg-muted hover:bg-fg/10 hover:text-fg sm:block"
               >
                 100%
               </button>
@@ -190,24 +242,29 @@ export function ImageLightbox({
                 type="button"
                 onClick={() => setZoom(fitZoom)}
                 aria-label={t("lightbox.fit")}
-                className="h-9 rounded-md px-2 text-xs text-fg-muted hover:bg-fg/10 hover:text-fg"
+                title={t("lightbox.fit")}
+                className="grid size-11 place-items-center rounded-md text-fg-muted hover:bg-fg/10 hover:text-fg sm:flex sm:h-9 sm:w-auto sm:px-2"
               >
-                {t("lightbox.fit")}
+                <Maximize2 className="size-4 sm:hidden" />
+                <span className="hidden text-xs sm:inline">
+                  {t("lightbox.fit")}
+                </span>
               </button>
-              <span className="mx-1 h-5 w-px bg-fg/15" />
+              <span className="mx-1 hidden h-5 w-px bg-fg/15 sm:block" />
               <button
                 type="button"
                 onClick={openInTab}
                 aria-label={t("lightbox.openTab")}
-                className="grid size-9 place-items-center rounded-md text-fg-muted hover:bg-fg/10 hover:text-fg"
+                className="hidden size-9 place-items-center rounded-md text-fg-muted hover:bg-fg/10 hover:text-fg sm:grid"
               >
                 <ExternalLink className="size-4" />
               </button>
               <button
                 type="button"
                 onClick={download}
+                data-testid="lightbox-download"
                 aria-label={t("lightbox.download")}
-                className="grid size-9 place-items-center rounded-md text-fg-muted hover:bg-fg/10 hover:text-fg"
+                className="grid size-11 place-items-center rounded-md text-fg-muted hover:bg-fg/10 hover:text-fg sm:size-9"
               >
                 <Download className="size-4" />
               </button>
@@ -215,49 +272,118 @@ export function ImageLightbox({
                 type="button"
                 onClick={onClose}
                 aria-label={t("lightbox.close")}
-                className="ml-1 grid size-9 place-items-center rounded-md text-fg-muted hover:bg-fg/10 hover:text-fg"
+                className="ml-0.5 grid size-11 place-items-center rounded-md text-fg-muted hover:bg-fg/10 hover:text-fg sm:size-9"
               >
                 <X className="size-5" />
               </button>
             </div>
           </div>
 
-          {/* 图片：滚轮缩放、放大后拖拽平移 */}
+          {/* 图片：滚轮/双指缩放、放大后拖拽平移、适应时左右滑动切换 */}
           <div
             ref={viewportRef}
-            className={`relative grid min-h-0 flex-1 place-items-center overflow-auto p-4 ${
+            data-testid="lightbox-viewport"
+            className={`relative grid min-h-0 flex-1 touch-none place-items-center overflow-auto p-4 ${
               panning ? "cursor-grabbing" : canPan ? "cursor-grab" : ""
             }`}
             onPointerDown={(e) => {
-              if (e.button !== 0) return;
-              const el = viewportRef.current;
-              if (!el) return;
-              if (el.scrollWidth <= el.clientWidth && el.scrollHeight <= el.clientHeight) return;
-              didPanRef.current = false;
-              panRef.current = {
+              if (e.pointerType === "mouse" && e.button !== 0) return;
+              // 只接管图片和空白画布上的手势，工具栏/翻页按钮上的点击不参与拖拽。
+              if (
+                e.target !== e.currentTarget &&
+                e.target !== imageRef.current
+              ) {
+                return;
+              }
+              pointersRef.current.set(e.pointerId, {
                 x: e.clientX,
                 y: e.clientY,
-                left: el.scrollLeft,
-                top: el.scrollTop,
-              };
-              el.setPointerCapture(e.pointerId);
-              setPanning(true);
+              });
+
+              if (pointersRef.current.size === 2) {
+                const [first, second] = [...pointersRef.current.values()];
+                const distance = Math.hypot(
+                  first.x - second.x,
+                  first.y - second.y,
+                );
+                if (distance > 0) {
+                  pinchRef.current = { distance, zoom };
+                }
+                didGestureRef.current = true;
+                swipeRef.current = null;
+                panRef.current = null;
+                setPanning(false);
+                return;
+              }
+              if (pointersRef.current.size > 2) return;
+
+              const el = viewportRef.current;
+              if (!el) return;
+              // 留 2px 容忍亚像素取整；否则“适应屏幕”后会误判为可拖拽。
+              const fits =
+                el.scrollWidth <= el.clientWidth + 2 &&
+                el.scrollHeight <= el.clientHeight + 2;
+              if (!fits) {
+                didGestureRef.current = false;
+                panRef.current = {
+                  x: e.clientX,
+                  y: e.clientY,
+                  left: el.scrollLeft,
+                  top: el.scrollTop,
+                };
+                el.setPointerCapture(e.pointerId);
+                setPanning(true);
+              } else if (e.pointerType !== "mouse") {
+                didGestureRef.current = false;
+                swipeRef.current = {
+                  pointerId: e.pointerId,
+                  x: e.clientX,
+                  y: e.clientY,
+                };
+              } else {
+                didGestureRef.current = false;
+              }
             }}
             onPointerMove={(e) => {
+              const point = pointersRef.current.get(e.pointerId);
+              if (point) {
+                point.x = e.clientX;
+                point.y = e.clientY;
+              }
+
+              if (pointersRef.current.size >= 2 && pinchRef.current) {
+                const [first, second] = [...pointersRef.current.values()];
+                const distance = Math.hypot(
+                  first.x - second.x,
+                  first.y - second.y,
+                );
+                setZoom(
+                  pinchZoom(
+                    pinchRef.current.zoom,
+                    pinchRef.current.distance,
+                    distance,
+                  ),
+                );
+                didGestureRef.current = true;
+                return;
+              }
+
               const el = viewportRef.current;
               const start = panRef.current;
               if (!el || !start) return;
               const dx = e.clientX - start.x;
               const dy = e.clientY - start.y;
-              if (Math.abs(dx) + Math.abs(dy) > 2) didPanRef.current = true;
+              if (Math.abs(dx) + Math.abs(dy) > 2) {
+                didGestureRef.current = true;
+              }
               el.scrollLeft = start.left - dx;
               el.scrollTop = start.top - dy;
             }}
-            onPointerUp={endPan}
-            onPointerCancel={endPan}
+            onPointerUp={(e) => endGesture(e, true)}
+            onPointerCancel={(e) => endGesture(e, false)}
             onClick={(e) => {
-              if (didPanRef.current) {
-                didPanRef.current = false;
+              if (didGestureRef.current) {
+                didGestureRef.current = false;
                 return;
               }
               if (e.target === e.currentTarget) onClose();
@@ -268,6 +394,7 @@ export function ImageLightbox({
             ) : (
               <img
                 ref={imageRef}
+                data-testid="lightbox-image"
                 src={current}
                 alt={t("lightbox.title")}
                 onClick={(e) => e.stopPropagation()}
@@ -275,7 +402,7 @@ export function ImageLightbox({
                   setZoom((currentZoom) =>
                     currentZoom > fitZoom * 1.01
                       ? fitZoom
-                      : clamp(fitZoom * 2, MIN_ZOOM, MAX_ZOOM),
+                      : clampZoom(fitZoom * 2),
                   )
                 }
                 onLoad={(e) => {
@@ -306,7 +433,7 @@ export function ImageLightbox({
                     go(-1);
                   }}
                   aria-label={t("lightbox.previous")}
-                  className="absolute left-3 top-1/2 grid size-10 -translate-y-1/2 place-items-center rounded-full bg-overlay/50 text-fg hover:bg-overlay/70"
+                  className="absolute left-1 top-1/2 grid size-11 -translate-y-1/2 place-items-center rounded-full bg-overlay/50 text-fg hover:bg-overlay/70 sm:left-3 sm:size-10"
                 >
                   <ChevronLeft className="size-6" />
                 </button>
@@ -317,16 +444,17 @@ export function ImageLightbox({
                     go(1);
                   }}
                   aria-label={t("lightbox.next")}
-                  className="absolute right-3 top-1/2 grid size-10 -translate-y-1/2 place-items-center rounded-full bg-overlay/50 text-fg hover:bg-overlay/70"
+                  className="absolute right-1 top-1/2 grid size-11 -translate-y-1/2 place-items-center rounded-full bg-overlay/50 text-fg hover:bg-overlay/70 sm:right-3 sm:size-10"
                 >
                   <ChevronRight className="size-6" />
                 </button>
               </>
             )}
 
-            <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
-              <span className="rounded-full bg-overlay/45 px-3 py-1 text-[10.5px] text-fg/55">
-                {t("lightbox.hint")}
+            <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center px-2">
+              <span className="rounded-full bg-overlay/45 px-3 py-1 text-center text-[10.5px] text-fg/55">
+                <span className="sm:hidden">{t("lightbox.hintTouch")}</span>
+                <span className="hidden sm:inline">{t("lightbox.hint")}</span>
               </span>
             </div>
           </div>

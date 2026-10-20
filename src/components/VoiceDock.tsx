@@ -31,7 +31,7 @@ function HoverVolumePanel({
   const { t } = useTranslation();
 
   return (
-    <div className="absolute bottom-full left-0 z-50 hidden pb-2 group-hover:block group-focus-within:block">
+    <div className="absolute bottom-full left-3 z-50 hidden pb-2 group-hover:block group-focus-within:block">
       <div className="w-56 max-w-[calc(100vw-6.5rem)] rounded-panel border border-line-control bg-ink-900 p-3 shadow-panel">
         <div className="flex items-baseline gap-2">
           <span className="text-micro font-medium text-fg">{label}</span>
@@ -108,26 +108,35 @@ export function VoiceDock({ onOpenSettings }: { onOpenSettings: () => void }) {
   if (!self) return null;
 
   const inLobby = self.channelId === rootChannelId;
+  const channelName = channels[self.channelId]?.name ?? self.name;
 
   return (
     <div
       data-testid="voice-dock"
       className="relative z-30 flex min-h-[var(--dock-h-mobile)] shrink-0 items-center gap-2 border-t border-line bg-ink-900 px-3 pb-[env(safe-area-inset-bottom)] md:hidden"
     >
-      <div className="flex min-w-0 shrink-0 items-center gap-2 md:w-[200px]">
-        <UserAvatar name={self.name} size={32} talking={selfTalking} />
-        <div className="hidden min-w-0 sm:block">
+      <div className="flex min-w-0 flex-1 items-center gap-2">
+        <div className="shrink-0" title={`${self.name} · ${status}`}>
+          <UserAvatar name={self.name} size={32} talking={selfTalking} />
+        </div>
+        <div
+          data-testid="voice-dock-status"
+          className="hidden min-w-0 flex-1 min-[390px]:block"
+        >
           <div className="truncate text-ui font-semibold leading-tight text-fg">
-            {self.name}
+            {channelName}
           </div>
           <div className="truncate text-data text-fg-subtle" aria-live="polite">
             {status}
           </div>
         </div>
+        <span className="sr-only min-[390px]:hidden">
+          {self.name} · {status}
+        </span>
       </div>
 
-      <div className="flex min-w-0 items-center gap-1">
-        <div className="group relative">
+      <div className="flex shrink-0 items-center gap-1">
+        <div className="group">
           <IconButton
             label={selfMuted ? t("userbar.unmute") : t("userbar.mute")}
             aria-pressed={!selfMuted}
@@ -148,7 +157,7 @@ export function VoiceDock({ onOpenSettings }: { onOpenSettings: () => void }) {
           />
         </div>
 
-        <div className="group relative">
+        <div className="group">
           <IconButton
             label={selfDeafened ? t("userbar.undeafen") : t("userbar.deafen")}
             aria-pressed={!selfDeafened}
