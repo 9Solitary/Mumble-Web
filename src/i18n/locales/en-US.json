@@ -1,6 +1,7 @@
 {
   "app": {
     "title": "Mumble Web",
+    "titleUnread": "({{count}}) {{title}}",
     "loading": "Syncing channels and people…",
     "reconnecting": "Connection lost. Reconnecting",
     "reconnectingAttempt": "Connection lost. Reconnecting (attempt {{attempt}})…",
@@ -26,6 +27,7 @@
     "heroBody": "Join a Mumble server right in the browser. Low latency, no client install.",
     "brandSubtitle": "Your voice space in the browser",
     "footer": "Join your Mumble voice space in the browser.",
+    "footerLine": "{{brand}} · {{footer}}",
     "featureLowLatency": "Low latency",
     "featureLowLatencyBody": "Jump into a channel and talk without the desktop app.",
     "featureInvite": "One-link invites",
@@ -57,6 +59,7 @@
     "backToConnect": "Back to connect"
   },
   "chat": {
+    "title": "Chat",
     "placeholder": "Message {{channel}}",
     "placeholderReconnecting": "Disconnected. Reconnecting…",
     "joinToTalk": "Join {{channel}} to talk",
@@ -113,14 +116,16 @@
     "retryHint": "Takes over the other session",
     "changeName": "Use another name",
     "detail": "Details",
-    "ended": "Session ended"
+    "ended": "Session ended",
+    "name": "Name",
+    "noAutoReconnect": "This page will not reconnect automatically."
   },
   "settings": {
     "title": "Settings",
-    "description": "Audio, appearance, and connection health",
     "tabs": {
       "audio": "Audio",
       "voice": "Voice",
+      "shortcuts": "Shortcuts",
       "appearance": "Appearance",
       "diagnostics": "Diagnostics",
       "about": "About"
@@ -128,7 +133,11 @@
     "done": "Done",
     "reset": "Reset to defaults",
     "resetDone": "Defaults restored",
+    "saved": "Saved",
     "autoSaved": "Changes are saved automatically",
+    "resetConfirmTitle": "Restore default settings?",
+    "resetConfirmBody": "Audio, voice, and shortcut settings return to defaults. Your language and theme stay as they are.",
+    "resetConfirm": "Reset to defaults",
     "appearance": {
       "languageSection": "Language & region",
       "language": "Language",
@@ -154,6 +163,7 @@
       "outputVolumeHelp": "Global volume. Per-person volume is in the member list.",
       "outputMuted": "0% means you hear nothing.",
       "restoreOutput": "Reset to 100%",
+      "outputRestored": "Output volume restored to 100%",
       "lowLatency": "Low-latency audio buffer",
       "lowLatencyHelp": "Favors lower delay. Turn it off if audio breaks up on an unstable network.",
       "permissionNeeded": "Microphone access is needed to list devices",
@@ -193,6 +203,14 @@
       "help": "Use this to investigate delay or disconnects. Copy it and send it to the maintainer.",
       "copy": "Copy diagnostics",
       "copied": "Copied",
+      "export": "Export JSON",
+      "exported": "Exported",
+      "copyFailed": "Copy failed. Check browser permissions.",
+      "exportFailed": "Export failed.",
+      "logTitle": "Event log",
+      "logCount": "{{count}} events",
+      "logHelp": "Connection, error, and page-state events only. Chat content is never recorded.",
+      "logEmpty": "No diagnostic events yet",
       "rtt": "RTT",
       "jitter": "Buffer level",
       "target": "Buffer target",
@@ -207,6 +225,7 @@
     },
     "about": {
       "version": "Proxy version",
+      "server": "Server",
       "unknown": "Unknown",
       "note": "Mumble Web · your Mumble voice space in the browser.",
       "logout": "Sign out",
@@ -219,6 +238,8 @@
     "joinChannel": "Join channel",
     "connected": "Connected",
     "reconnecting": "Reconnecting",
+    "reconnectingAttempt": "Reconnecting · attempt {{attempt}}",
+    "selfStatus": "{{name}} · {{status}}",
     "serverFallback": "Mumble server",
     "latency": "Latency",
     "voiceChannels": "Voice channels",
@@ -235,7 +256,7 @@
   "member": {
     "title": "Members",
     "description": "People online, their volume, and mute state",
-    "openCount": "Members ({{count}})",
+    "openCount": "Members {{count}}",
     "online": "Online",
     "searchPlaceholder": "Search members",
     "searchClear": "Clear search",
@@ -251,6 +272,31 @@
     "statusDeafened": "Deafened",
     "statusSilenced": "Silenced",
     "prioritySpeaker": "Priority speaker"
+  },
+  "shortcuts": {
+    "title": "Keyboard shortcuts",
+    "description": "Defaults use Ctrl/⌘ + Shift; single keys are allowed too. Push to talk holds Space by default.",
+    "note": "Push to talk is hold-to-talk and can be rebound above; it does not fire while typing. Global shortcuts pause while a dialog is open.",
+    "recording": "Recording: {{action}}",
+    "escCancel": "Press Esc to cancel",
+    "settingsHint": "Press {{combo}} anytime to open this list.",
+    "change": "Change",
+    "cancel": "Cancel",
+    "reset": "Reset",
+    "updated": "Shortcut updated",
+    "resetDone": "Shortcuts reset",
+    "actions": {
+      "toggleMute": "Mute microphone / unmute",
+      "toggleDeafen": "Deafen headphones / undeafen",
+      "searchMembers": "Search members",
+      "showHelp": "Shortcut help",
+      "pushToTalk": "Push to talk (hold)"
+    },
+    "errors": {
+      "duplicate": "That combo is already used by another action.",
+      "empty": "Press one more non-modifier key.",
+      "reserved": "That key is reserved by the interface. Pick another one."
+    }
   },
   "userbar": {
     "account": "Account",
