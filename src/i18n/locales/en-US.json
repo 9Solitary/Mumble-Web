@@ -59,10 +59,16 @@
   "chat": {
     "placeholder": "Message {{channel}}",
     "placeholderReconnecting": "Disconnected. Reconnecting…",
+    "joinToTalk": "Join {{channel}} to talk",
     "emptyTitle": "Welcome to {{channel}}",
     "emptyBody": "No messages yet. Say hello. You are here as {{name}}.",
+    "emptyNotJoined": "You are viewing {{channel}}. Join to talk.",
+    "joinVoice": "Join voice",
     "sendImage": "Send an image (or paste one)",
     "send": "Send",
+    "copyMessage": "Copy message",
+    "dropImage": "Drop to send the image",
+    "composerHint": "Enter to send · Shift+Enter for a new line · paste or drop an image",
     "viewImage": "View image",
     "imageAlt": "Image",
     "serverSender": "Server",
@@ -89,6 +95,7 @@
     "next": "Next image",
     "counter": "{{index}} / {{total}}",
     "hint": "Scroll to zoom · drag to pan",
+    "hintTouch": "Pinch to zoom · swipe to change image",
     "loadFailed": "Could not load image"
   },
   "session": {
@@ -217,11 +224,33 @@
     "voiceChannels": "Voice channels",
     "channelTitle": "{{name}} (double-click to join voice)"
   },
+  "channel": {
+    "collapse": "Collapse channel",
+    "expand": "Expand channel",
+    "joinVoice": "Join voice",
+    "joined": "Joined",
+    "unread": "New messages",
+    "empty": "No channels yet"
+  },
   "member": {
+    "title": "Members",
+    "description": "People online, their volume, and mute state",
+    "openCount": "Members ({{count}})",
+    "online": "Online",
+    "searchPlaceholder": "Search members",
+    "searchClear": "Clear search",
+    "empty": "No one here yet",
+    "noResults": "No matching members",
+    "statusOnline": "Online",
     "self": "(you)",
     "volume": "Volume · {{name}}",
     "channelFallback": "Channel {{cid}}",
-    "localMute": "Silence this person for me"
+    "localMute": "Silence this person for me",
+    "statusTalking": "Speaking",
+    "statusMuted": "Muted",
+    "statusDeafened": "Deafened",
+    "statusSilenced": "Silenced",
+    "prioritySpeaker": "Priority speaker"
   },
   "userbar": {
     "account": "Account",
